@@ -182,9 +182,6 @@ synonymously_mutate_template <- function(
     repair_template[[temp_name]] <- mutated_seq
   }
 
-
-
-
   # first we write the sequence
   Biostrings::writeXStringSet(repair_template,
                               file.path(output_dir, paste0(mutation_name, "_templates.fa")))
