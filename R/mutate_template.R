@@ -6,28 +6,65 @@
 # library(GenomicRanges)
 # library(IRanges)
 # library(BSgenome.Hsapiens.UCSC.hg38)
+#
+# ensemble_transcript_id = "ENST00000399837.8"
+# mutation_loci = 506
+# mutation_original = "G"
+# mutation_replacement = "A"
+# mutation_name = "R169Q"
+# output_dir = "~/"
+# annotation = "gencode.v42.annotation.gff3"
+# genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+# extension = 50
+# positions_to_mutate = -30:30
+# mutations_per_template = 4
+# n = 96
+# seed = 42
 
+#' @title Design templates with innocent synonymous SNPs
+#'
+#' @description Design templates with mutations that will not change coding sequence
+#'
+#' @param ensemble_transcript_id This has to be ensemble transcript id e.g. ENST00000307851.9
+#' @param mutation_loci Position on the gene that is mutated e.g. 245
+#' @param mutation_original What was the original base on the genome? e.g. A
+#' @param mutation_replacement What is the mutated base? e.g. G
+#' @param mutation_name What is your name for this mutation e.g. tyr82cys
+#' @param output_dir Where the files should be generated? Make sure you have writing permissions there.
+#' @param annotation File path to the annotation file, a gff3.
+#' @param genome BSgenome of your genome, compatible with annotation file, by default it is hg38.
+#' @param extension How many bases upstream/downstream from the mutation loci should we include Default is 50.
+#' @param positions_to_mutate Which positions from the mutation are available for mutation. By default its -30:30
+#' leaving 20bp on each side of the template for the in case of incomplete integration of the template. Also codon
+#' occupied by the mutation is not included in the change.
+#' @param mutations_per_template How many codons should be mutated per template.
+#' @param n How many tempaltes to generate? Defalt is set to 96.
+#' @param seed Ensures reproducibility of the random parts of the pipeline.
+#' @return writes files to the specified directory, might overwrite
+#' @import Biostrings GenomicFeatures GenomicRanges IRanges BSgenome.Hsapiens.UCSC.hg38
+#' @importFrom utils write.table
+#' @export
+#'
 synonymously_mutate_template <- function(
-    ensemble_transcript_id = "ENST00000399837.8",
-    mutation_loci = 506,
-    mutation_original = "G",
-    mutation_replacement = "A",
-    mutation_name = "R169Q",
-    output_dir = "~/",
-    extension = 50,
-    positions_to_mutate = -20:20,
-    mutations_per_template = 3,
-    annotation = "gencode.v42.annotation.gff3",
+    ensemble_transcript_id,
+    mutation_loci,
+    mutation_original,
+    mutation_replacement,
+    mutation_name,
+    output_dir,
+    annotation,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
+    extension = 50,
+    positions_to_mutate = -30:30,
+    mutations_per_template = 4,
     n = 96,
-    seed = 42)
+    seed = 42) {
 
-{
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  txdb <- GenomicFeatures::makeTxDbFromGFF(annotation)
-  cds <- GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T)
+  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+  cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
   cds <- cds[!duplicated(names(cds))]
   cds <- cds[ensemble_transcript_id]
   mut_genomic <- GenomicFeatures::pmapFromTranscripts(
@@ -35,10 +72,6 @@ synonymously_mutate_template <- function(
   mut_genomic <- mut_genomic[[1]][mut_genomic[[1]]$hit]
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
-
-  # # not needed?
-  # template <- DNAString("ccccgtccatcagaaaaatgttccaagtggattctgctggaggattatcggaagcgggtgcagaacgtcactgagtttgatgacaggtgagtagtagttc")
-  # pairwiseAlignment(genomic_seq, template, type = "overlap")
 
   if (as.character(Biostrings::getSeq(genome, mut_genomic)) != mutation_original) {
     warning("Your `mutation_original` is not the same as the one on the transcript sequence!")
@@ -64,29 +97,6 @@ synonymously_mutate_template <- function(
   codon_position <- this_pos_mutation_loci - codon_start + 1
   original_codon <- aa_cds_seq[codon_count]
   original_codon_seq <- cds_seq[codon_start:codon_end]
-
-  # prepare mutations ranges
-  # original mutation
-  if (as.character(strand(genomic_site)) == "-") {
-    origin_mutation <- GRanges(
-      seqnames = mutation_name,
-      ranges = IRanges(extension, width = 1,
-                       names = mutation_name),
-      strand = "+",
-      original = as.character(genomic_seq[[1]][extension + 1]),
-      replacement = mutation_replacement, shift = 0,
-      codon = codon_count)
-  } else {
-    origin_mutation <- GRanges(
-      seqnames = mutation_name,
-      ranges = IRanges(extension + 1, width = 1,
-                       names = mutation_name),
-      strand = "+",
-      original = as.character(genomic_seq[[1]][extension + 1]),
-      replacement = mutation_replacement, shift = 0,
-      codon = codon_count)
-  }
-
 
   # 0 is position of the codon_position, therefore
   # filter out other positionsof that codon
@@ -146,7 +156,7 @@ synonymously_mutate_template <- function(
   # lsit all possible combinations of 3 mutations by index
   tc <- n
   available_muts <- seq_along(mutations)
-  selected_combs <- matrix(nrow = tc, ncol = 3)
+  selected_combs <- matrix(nrow = tc, ncol = mutations_per_template)
   i <- 0
   # we just randomize
   stop_counter <- 100000
@@ -155,11 +165,11 @@ synonymously_mutate_template <- function(
     i <- i + 1
     stop_counter_i <- stop_counter_i + 1
     available_muts <- seq_along(mutations)
-    mut123 <- sample(available_muts, size = 3, replace = F)
+    mut123 <- sample(available_muts, size = mutations_per_template, replace = F)
     mut123 <- sort(mut123)
     # mutations can't also be using the same codon more than 1 time
     # mutations can't repeat
-    if ((length(unique(mutations[mut123]$codon)) != 3) |
+    if ((length(unique(mutations[mut123]$codon)) != mutations_per_template) |
         (any(apply(selected_combs, 1, function(x) all(x == mut123)), na.rm = T))) {
       i <- i - 1 # this randomization failed, try again
     } else {
