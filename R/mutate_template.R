@@ -78,14 +78,16 @@ synonymously_mutate_template <- function(
   }
 
   # grab sequence +- extension bp around mutation site - might include introns!!!
-  genomic_site <- mut_genomic + (extension - 1)
-  if (as.character(strand(genomic_site)) == "-") { # on minus we add 1 from the right
-    genomic_site <- resize(genomic_site, width = extension * 2, fix = "start")
-  } else { # on plus we remove 1 from the right
-    genomic_site <- resize(genomic_site, width = extension * 2, fix = "end")
-  }
+  genomic_site <- resize(mut_genomic, width = extension * 2, fix = "center")
   genomic_seq <- Biostrings::getSeq(genome, genomic_site)
   names(genomic_seq) <- mutation_name
+  tx_loci_with_introns <- resize(IRanges(mutation_loci + 1, width = 1), width = 100, fix = "center")
+
+  # figure out mask - part of the template that actually is not part of the cds!!!
+  mask_genome <- intersect(genomic_site, cds[[1]]) # this part on the genome is used for cds
+  mask_cds <- ranges(GenomicFeatures::mapToTranscripts(mask_genome, cds)) # this part of the cds we are actually mutating
+  # now - make it relative to the genome sequence we operate on
+  mask_seq <- shift(mask_cds, - (start(tx_loci_with_introns) - 1)) # parts of the sequence that are used for the cds
 
   # 3 extra mutations that are synonymous
   pp <- positions_to_mutate
@@ -137,7 +139,7 @@ synonymously_mutate_template <- function(
     # instead of picking randomly we will use all available alternate codons here
     replacement <- sapply(names(alternate), function(x) strsplit(x, "")[[1]][codon_position])
     mut <- GRanges(seqnames = mutation_name,
-                   ranges = IRanges(extension + 1 + i, width = 1),
+                   ranges = IRanges(extension + i, width = 1),
                    strand = "+",
                    original = as.character(original_codon_seq[codon_position]),
                    replacement = "",
@@ -185,11 +187,19 @@ synonymously_mutate_template <- function(
   repair_template <- DNAStringSet()
   for (i in seq_len(tc)) {
     muts <- mutations[selected_combs[i, ]]
-    mutated_seq <- replaceAt(genomic_seq[[1]],
+    seq_to_mut <- genomic_seq[[1]]
+    mutated_seq <- replaceAt(seq_to_mut,
                              at = ranges(muts),
                              value = DNAStringSet(muts$replacement))
     temp_name <- paste0("Template_", i, "_Mut_", paste0(selected_combs[i, ], collapse = "_"))
     repair_template[[temp_name]] <- mutated_seq
+  }
+
+  # lets do some verification that all codons work
+  if (!all(sapply(repair_template, function(x) {
+    translate(replaceAt(cds_seq, at = mask_cds, value = x[mask_seq])) == aa_cds_seq
+  }))) {
+    stop("Not all sequences seem to be perfectly non-synonymous changes. This is a bug, report to authors.")
   }
 
   # first we write the sequence
