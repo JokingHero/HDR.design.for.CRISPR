@@ -46,8 +46,8 @@ design_by_template <- function(ensemble_transcript_id,
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  txdb <- GenomicFeatures::makeTxDbFromGFF(annotation)
-  cds <- GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T)
+  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+  cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
   cds <- cds[!duplicated(names(cds))]
   cds <- cds[ensemble_transcript_id]
   mut_genomic <- GenomicFeatures::pmapFromTranscripts(
@@ -139,11 +139,11 @@ design_by_template <- function(ensemble_transcript_id,
   names(mutations) <- seq_along(mutations)
 
   # from above we need to select 3 mutations that can be unique to each template
-  # select 7 groups of 3 mutations
+  # select 1 groups of 3 mutations
   # each codon can't be reused in this calculation
 
   # lsit all possible combinations of 3 mutations by index
-  tc <- 7
+  tc <- 1
   available_muts <- seq_along(mutations)
   selected_combs <- matrix(nrow = tc, ncol = 3)
   i <- 1
@@ -195,6 +195,7 @@ design_by_template <- function(ensemble_transcript_id,
   }
 
   # now we just randomize
+  # TODO make a function our of better version in mutate template!!!
   selected_combs <- Rfast::sort_mat(selected_combs, by.row = T, descending = F)
   while (i < tc) {
     i <- i + 1
@@ -213,8 +214,8 @@ design_by_template <- function(ensemble_transcript_id,
   hdr_probes <- GRanges()
   shifts <- c(0, -30, -20, -10, 10, 20, 30)
   template_range <- promoters(ranges(origin_mutation), upstream = 49, downstream = 51)
-  for (i in seq_len(tc)) {
-    muts <- mutations[selected_combs[i, ]]
+  for (i in 1:7) { # previously we did 7 unique templates as 7 unique mutations, now all 7 get same mutations
+    muts <- mutations[selected_combs[1, ]]
     mutated_seq <- replaceAt(genomic_seq[[1]],
                              at = ranges(muts),
                              value = DNAStringSet(muts$replacement))
@@ -225,7 +226,7 @@ design_by_template <- function(ensemble_transcript_id,
                   replacement = as.character(extractAt(mutated_seq, tri)),
                   shift = shifts[i])
     temp_name <- paste0("Template_", as.character(shifts[i]),
-                        "_Mut_", paste0(selected_combs[i, ], collapse = "_"))
+                        "_Mut_", paste0(selected_combs[1, ], collapse = "_"))
     names(rt) <- temp_name
     repair_template <- c(repair_template, rt)
 
@@ -302,8 +303,8 @@ design_by_template <- function(ensemble_transcript_id,
   origin_mutation$codon <- NULL
   mutations$codon <- NULL
   # The only trick is remembering the BED uses 0-based coordinates. So add "-1" to the coords.
-  all_combined <- c(origin_mutation, mutations, guides, repair_template,
-                    hdr_probes, nhej_probes, ref_probes)
+  all_combined <- c(origin_mutation, mutations, guides, repair_template)
+                    #hdr_probes, nhej_probes, ref_probes)
   gr <- as.data.frame(all_combined)
   gr$start <- gr$start - 1
   write.table(gr, file = file.path(output_dir, paste0(mutation_name, "_0based.csv")),
