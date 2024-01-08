@@ -90,10 +90,7 @@ synonymously_mutate_cds <- function(
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
-  cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
-  cds <- cds[!duplicated(names(cds))]
-  cds <- cds[ensemble_transcript_id]
+  cds <- get_cds(annotation, ensemble_transcript_id)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
 
@@ -102,7 +99,7 @@ synonymously_mutate_cds <- function(
   # figure out all possible mutations that are synonymous
   synonymous_cds <- c()
   for (i in seq_len(codon_count)) {
-    alternate <- GENETIC_CODE[GENETIC_CODE == as.character(aa_cds_seq[i])]
+    alternate <- Biostrings::GENETIC_CODE[Biostrings::GENETIC_CODE == as.character(aa_cds_seq[i])]
 
     # filter out original codon from alternate
     original_cds_seq <- as.character(cds_seq[(i*3 - 2):(i*3)])

@@ -13,7 +13,7 @@
 # mutation_replacement = "A"
 # mutation_name = "R169Q"
 # output_dir = "~/"
-# annotation = "gencode.v42.annotation.gff3"
+# annotation = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/Oline_seqeuncing_HDR_14_07_2023/gencode.v42.annotation.gff3.gz"
 # genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
 # extension = 50
 # positions_to_mutate = -30:30
@@ -38,7 +38,7 @@
 #' leaving 20bp on each side of the template for the in case of incomplete integration of the template. Also codon
 #' occupied by the mutation is not included in the change.
 #' @param mutations_per_template How many codons should be mutated per template.
-#' @param n How many tempaltes to generate? Defalt is set to 96.
+#' @param n How many templates to generate? Default is set to 96.
 #' @param seed Ensures reproducibility of the random parts of the pipeline.
 #' @return writes files to the specified directory, might overwrite
 #' @import Biostrings GenomicFeatures GenomicRanges IRanges BSgenome.Hsapiens.UCSC.hg38
@@ -63,129 +63,35 @@ synonymously_mutate_template <- function(
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
-  cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
-  cds <- cds[!duplicated(names(cds))]
-  cds <- cds[ensemble_transcript_id]
-  mut_genomic <- GenomicFeatures::pmapFromTranscripts(
-    IRanges(mutation_loci, width = 1), cds[ensemble_transcript_id])
-  mut_genomic <- mut_genomic[[1]][mut_genomic[[1]]$hit]
+  cds <- get_cds(annotation, ensemble_transcript_id)
+  mut_genomic <- get_genomic_mutation(cds, mutation_loci)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
 
   if (as.character(Biostrings::getSeq(genome, mut_genomic)) != mutation_original) {
-    warning("Your `mutation_original` is not the same as the one on the transcript sequence!")
+    stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
   }
 
   # grab sequence +- extension bp around mutation site - might include introns!!!
   genomic_site <- resize(mut_genomic, width = extension * 2, fix = "center")
   genomic_seq <- Biostrings::getSeq(genome, genomic_site)
   names(genomic_seq) <- mutation_name
-  tx_loci_with_introns <- resize(IRanges(mutation_loci + 1, width = 1), width = 100, fix = "center")
 
   # figure out mask - part of the template that actually is not part of the cds!!!
   mask_genome <- intersect(genomic_site, cds[[1]]) # this part on the genome is used for cds
   mask_cds <- ranges(GenomicFeatures::mapToTranscripts(mask_genome, cds)) # this part of the cds we are actually mutating
   # now - make it relative to the genome sequence we operate on
+  tx_loci_with_introns <- resize(IRanges(mutation_loci + 1, width = 1),
+                                 width = extension * 2, fix = "center")
   mask_seq <- shift(mask_cds, - (start(tx_loci_with_introns) - 1)) # parts of the sequence that are used for the cds
 
-  # 3 extra mutations that are synonymous
-  pp <- positions_to_mutate
-  # remove positions of our main mutation codon
-  this_pos_mutation_loci <- mutation_loci
-  codon_count <- ceiling(this_pos_mutation_loci / 3)
-  codon_end <- codon_count * 3
-  codon_start <- codon_end - 2
-  codon_position <- this_pos_mutation_loci - codon_start + 1
-  original_codon <- aa_cds_seq[codon_count]
-  original_codon_seq <- cds_seq[codon_start:codon_end]
-
-  # 0 is position of the codon_position, therefore
-  # filter out other positionsof that codon
-  if (codon_position == 3) {
-    pp <- pp[!pp %in% -2:0]
-  } else if (codon_position == 2) {
-    pp <- pp[!pp %in% -1:1]
-  } else {
-    pp <- pp[!pp %in% 0:2]
-  }
-
-  # figure out all possible mutations that are synonymous
-  sp <- c()
-  mutations <- GRanges()
-  for (i in pp) {
-    this_pos_mutation_loci <- mutation_loci + i
-    codon_count <- ceiling(this_pos_mutation_loci / 3)
-    codon_end <- codon_count * 3
-    codon_start <- codon_end - 2
-    codon_position <- this_pos_mutation_loci - codon_start + 1
-    original_codon <- aa_cds_seq[codon_count]
-    original_codon_seq <- cds_seq[codon_start:codon_end]
-
-    # we want to change only codon_position and keep same codon
-    positions_that_we_keep <- c(1:3)[!c(1:3) %in% codon_position]
-    original_codon_seq_ <- original_codon_seq[positions_that_we_keep]
-    alternate <- GENETIC_CODE[GENETIC_CODE == as.character(original_codon)]
-
-    # filter out original codon from alternate
-    alternate <- alternate[names(alternate) != as.character(original_codon_seq)]
-
-    # filter out those codons that don't have the same extension as original codon
-    alt_names <- sapply(names(alternate), function(x) {
-      paste0(strsplit(x, "")[[1]][positions_that_we_keep], collapse = "")
-    })
-    alternate <- alternate[alt_names == as.character(original_codon_seq_)]
-    if (length(alternate) == 0) next # original position is crucial to this codon
-    # instead of picking randomly we will use all available alternate codons here
-    replacement <- sapply(names(alternate), function(x) strsplit(x, "")[[1]][codon_position])
-    mut <- GRanges(seqnames = mutation_name,
-                   ranges = IRanges(extension + i, width = 1),
-                   strand = "+",
-                   original = as.character(original_codon_seq[codon_position]),
-                   replacement = "",
-                   shift = i,
-                   codon = codon_count)
-    mut <- rep(mut, length(replacement))
-    mut$replacement <- replacement
-    mutations <- c(mutations, mut)
-  }
-  names(mutations) <- seq_along(mutations)
-
-  # from above we need to select 3 mutations that can be unique to each template
-  # select 7 groups of 3 mutations
-  # each codon can't be reused in this calculation
-
-  # lsit all possible combinations of 3 mutations by index
-  tc <- n
-  available_muts <- seq_along(mutations)
-  selected_combs <- matrix(nrow = tc, ncol = mutations_per_template)
-  i <- 0
-  # we just randomize
-  stop_counter <- 100000
-  stop_counter_i <- 0
-  while (i < tc) {
-    i <- i + 1
-    stop_counter_i <- stop_counter_i + 1
-    available_muts <- seq_along(mutations)
-    mut123 <- sample(available_muts, size = mutations_per_template, replace = F)
-    mut123 <- sort(mut123)
-    # mutations can't also be using the same codon more than 1 time
-    # mutations can't repeat
-    if ((length(unique(mutations[mut123]$codon)) != mutations_per_template) |
-        (any(apply(selected_combs, 1, function(x) all(x == mut123)), na.rm = T))) {
-      i <- i - 1 # this randomization failed, try again
-    } else {
-      selected_combs[i, ] <- mut123
-    }
-
-    if (stop_counter_i == stop_counter) {
-      stop("Can't produce that many templates with these settings.")
-    }
-  }
+  mutations <- get_all_possilbe_mutations(
+    mutation_name, positions_to_mutate, mutation_loci, cds_seq, aa_cds_seq, extension)
+  selected_combs <- get_combinations_of_mutations(mutations, n, mutations_per_template)
 
   # now the repair template sequences
   repair_template <- DNAStringSet()
-  for (i in seq_len(tc)) {
+  for (i in seq_len(nrow(selected_combs))) {
     muts <- mutations[selected_combs[i, ]]
     seq_to_mut <- genomic_seq[[1]]
     mutated_seq <- replaceAt(seq_to_mut,
@@ -215,4 +121,8 @@ synonymously_mutate_template <- function(
 
   # lets try to construct gff3 file for snapgene
   rtracklayer::export.gff3(mutations, file.path(output_dir, paste0(mutation_name, ".gff3")))
+  rtracklayer::export.gff3(GRanges(seqnames = mutation_name,
+                                   ranges = mask_seq,
+                                   strand = "+",
+                                   type = "CDS"), file.path(output_dir, paste0(mutation_name, "_cds.gff3")))
 }

@@ -45,7 +45,7 @@ occupied by the mutation is not included in the change.}
 
 \item{mutations_per_template}{How many codons should be mutated per template.}
 
-\item{n}{How many tempaltes to generate? Defalt is set to 96.}
+\item{n}{How many templates to generate? Default is set to 96.}
 
 \item{seed}{Ensures reproducibility of the random parts of the pipeline.}
 }

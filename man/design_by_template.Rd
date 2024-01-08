@@ -15,6 +15,8 @@ design_by_template(
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
   guide_distance = 10 + 17,
   extension = 400,
+  positions_to_mutate = -19:19,
+  mutations_per_template = 3,
   seed = 42
 )
 }

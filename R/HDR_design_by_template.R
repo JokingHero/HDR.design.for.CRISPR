@@ -42,40 +42,41 @@ design_by_template <- function(ensemble_transcript_id,
                                genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
                                guide_distance = 10 + 17,
                                extension = 400,
+                               positions_to_mutate = -19:19,
+                               mutations_per_template = 3,
                                seed = 42) {
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
-  cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
-  cds <- cds[!duplicated(names(cds))]
-  cds <- cds[ensemble_transcript_id]
-  mut_genomic <- GenomicFeatures::pmapFromTranscripts(
-    IRanges(mutation_loci, width = 1), cds[ensemble_transcript_id])
-  mut_genomic <- mut_genomic[[1]][mut_genomic[[1]]$hit]
+  cds <- get_cds(annotation, ensemble_transcript_id)
+  mut_genomic <- get_genomic_mutation(cds, mutation_loci)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
 
   if (as.character(Biostrings::getSeq(genome, mut_genomic)) != mutation_original) {
-    warning("Your `mutation_original` is not the same as the one on the transcript sequence!")
+    stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
   }
 
-  # grab sequence +- 400bp around mutation site
-  genomic_site <- mut_genomic + extension
+  genomic_site <- resize(mut_genomic, width = extension * 2, fix = "center")
   genomic_seq <- Biostrings::getSeq(genome, genomic_site)
   names(genomic_seq) <- mutation_name
 
-  # 3 extra mutations that are synonymous
-  pp <- -19:19
-  # remove positions of our main mutation codon
-  this_pos_mutation_loci <- mutation_loci
-  codon_count <- ceiling(this_pos_mutation_loci / 3)
-  codon_end <- codon_count * 3
-  codon_start <- codon_end - 2
-  codon_position <- this_pos_mutation_loci - codon_start + 1
-  original_codon <- aa_cds_seq[codon_count]
-  original_codon_seq <- cds_seq[codon_start:codon_end]
+  # figure out mask - part of the template that actually is not part of the cds!!!
+  mask_genome <- intersect(genomic_site, cds[[1]]) # this part on the genome is used for cds
+  mask_cds <- ranges(GenomicFeatures::mapToTranscripts(mask_genome, cds)) # this part of the cds we are actually mutating
+  # now - make it relative to the genome sequence we operate on
+  tx_loci_with_introns <- resize(IRanges(mutation_loci + 1, width = 1),
+                                 width = extension * 2, fix = "center")
+  mask_seq <- shift(mask_cds, - (start(tx_loci_with_introns) - 1)) # parts of the sequence that are used for the cds
 
+  mutations <- get_all_possilbe_mutations(
+    mutation_name, positions_to_mutate, mutation_loci, cds_seq, aa_cds_seq, extension)
+  selected_combs <- get_combinations_of_mutations(mutations, 1, mutations_per_template)
+
+  # now the repair template sequences
+  repair_template <- GRanges()
+  #hdr_probes <- GRanges()
+  shifts <- c(0, -30, -20, -10, 10, 20, 30)
   # prepare mutations ranges
   # original mutation
   origin_mutation <- GRanges(
@@ -85,134 +86,7 @@ design_by_template <- function(ensemble_transcript_id,
     strand = "+",
     original = as.character(genomic_seq[[1]][extension + 1]),
     replacement = mutation_replacement, shift = 0,
-    codon = codon_count)
-
-  # 0 is position of the codon_position, therefore
-  # filter out other positionsof that codon
-  if (codon_position == 3) {
-    pp <- pp[!pp %in% -2:0]
-  } else if (codon_position == 2) {
-    pp <- pp[!pp %in% -1:1]
-  } else {
-    pp <- pp[!pp %in% 0:2]
-  }
-
-  # figure out all possible mutations that are synonymous
-  sp <- c()
-  mutations <- GRanges()
-  for (i in pp) {
-    this_pos_mutation_loci <- mutation_loci + i
-    codon_count <- ceiling(this_pos_mutation_loci / 3)
-    codon_end <- codon_count * 3
-    codon_start <- codon_end - 2
-    codon_position <- this_pos_mutation_loci - codon_start + 1
-    original_codon <- aa_cds_seq[codon_count]
-    original_codon_seq <- cds_seq[codon_start:codon_end]
-
-    # we want to change only codon_position and keep same codon
-    positions_that_we_keep <- c(1:3)[!c(1:3) %in% codon_position]
-    original_codon_seq_ <- original_codon_seq[positions_that_we_keep]
-    alternate <- GENETIC_CODE[GENETIC_CODE == as.character(original_codon)]
-
-    # filter out original codon from alternate
-    alternate <- alternate[names(alternate) != as.character(original_codon_seq)]
-
-    # filter out those codons that don't have the same extension as original codon
-    alt_names <- sapply(names(alternate), function(x) {
-      paste0(strsplit(x, "")[[1]][positions_that_we_keep], collapse = "")
-    })
-    alternate <- alternate[alt_names == as.character(original_codon_seq_)]
-    if (length(alternate) == 0) next # original position is crucial to this codon
-    # instead of picking randomly we will use all available alternate codons here
-    replacement <- sapply(names(alternate), function(x) strsplit(x, "")[[1]][codon_position])
-    mut <- GRanges(seqnames = mutation_name,
-                   ranges = IRanges(extension + 1 + i, width = 1),
-                   strand = "+",
-                   original = as.character(original_codon_seq[codon_position]),
-                   replacement = "",
-                   shift = i,
-                   codon = codon_count)
-    mut <- rep(mut, length(replacement))
-    mut$replacement <- replacement
-    mutations <- c(mutations, mut)
-  }
-  names(mutations) <- seq_along(mutations)
-
-  # from above we need to select 3 mutations that can be unique to each template
-  # select 1 groups of 3 mutations
-  # each codon can't be reused in this calculation
-
-  # lsit all possible combinations of 3 mutations by index
-  tc <- 1
-  available_muts <- seq_along(mutations)
-  selected_combs <- matrix(nrow = tc, ncol = 3)
-  i <- 1
-  while(length(available_muts) > 2 & i <= tc) {
-    # in each iteration make the best selection, for harder and harder problem
-    # first, the best starting codon will be the one with highest uniqness
-    codons_by_counts <- table(mutations[available_muts]$codon)
-    codon1 <- names(which.min(codons_by_counts))
-    # now randomize selection for that codon
-    mut1 <- available_muts[mutations[available_muts]$codon == codon1][1]
-    # remove this selection
-    available_muts <- available_muts[available_muts != mut1]
-
-    # as we have secured one truly unique codon for our templates
-    # we can select one of the less unique codons
-    codons_by_counts <- table(mutations[available_muts]$codon)
-    codons_by_counts <- codons_by_counts[names(codons_by_counts) != codon1]
-    codon2 <- names(which.max(codons_by_counts))
-    # now randomize selection for that codon
-    mut2 <- available_muts[mutations[available_muts]$codon == codon2][1]
-    # remove this selection
-    available_muts <- available_muts[available_muts != mut2]
-
-    # now we want to select codon that has big space but not the same as the codon2
-    codons_by_counts <- table(mutations[available_muts]$codon)
-    codons_by_counts <- codons_by_counts[!names(codons_by_counts) %in% c(codon1, codon2)]
-    codon3 <- names(which.max(codons_by_counts))
-    # now randomize selection for that codon
-    mut3 <- available_muts[mutations[available_muts]$codon == codon3][1]
-    # remove this selection
-    available_muts <- available_muts[available_muts != mut3]
-    selected_combs[i, ] <- c(mut1, mut2, mut3)
-    i = i + 1
-  }
-
-  # now we fill up the rest with leftovers
-  if ((i < tc + 1) & length(available_muts) > 0) {
-    mut1 <- available_muts[1]
-    available_muts <- available_muts[available_muts != mut1]
-    if (length(available_muts) > 0) {
-      mut2 <- available_muts[1]
-      mut3 <- selected_combs[1, 1] # take the path of least resistance
-
-    } else {
-      mut2 <- selected_combs[1, 1]
-      mut3 <- selected_combs[2, 1]
-    }
-    selected_combs[i, ] <- c(mut1, mut2, mut3)
-  }
-
-  # now we just randomize
-  # TODO make a function our of better version in mutate template!!!
-  selected_combs <- Rfast::sort_mat(selected_combs, by.row = T, descending = F)
-  while (i < tc) {
-    i <- i + 1
-    available_muts <- seq_along(mutations)
-    mut123 <- sample(available_muts, size = 3, replace = F)
-    mut123 <- sort(mut123)
-    if (any(apply(selected_combs, 1,function(x) all(x == mut123)), na.rm = T)) {
-      i <- i - 1 # this randomization failed, try again
-    } else {
-      selected_combs[i, ] <- mut123
-    }
-  }
-
-  # now the repair template sequences
-  repair_template <- GRanges()
-  hdr_probes <- GRanges()
-  shifts <- c(0, -30, -20, -10, 10, 20, 30)
+    codon = ceiling(mutation_loci / 3))
   template_range <- promoters(ranges(origin_mutation), upstream = 49, downstream = 51)
   for (i in 1:7) { # previously we did 7 unique templates as 7 unique mutations, now all 7 get same mutations
     muts <- mutations[selected_combs[1, ]]
@@ -230,15 +104,15 @@ design_by_template <- function(ensemble_transcript_id,
     names(rt) <- temp_name
     repair_template <- c(repair_template, rt)
 
-    probes <- design_probes(mutation_name, start(origin_mutation) - 18, start(origin_mutation) + 18, mutated_seq,
-                            len_min = 19, len_max = 25, tmin = 50, tmax = 65,
-                            origin_mut_start = extension + 1)
-    names(probes) <- paste0("HDR probe ", seq_along(probes), " for ", temp_name)
-    hdr_probes <- c(hdr_probes, probes)
+    # probes <- design_probes(mutation_name, start(origin_mutation) - 18, start(origin_mutation) + 18, mutated_seq,
+    #                         len_min = 19, len_max = 25, tmin = 50, tmax = 65,
+    #                         origin_mut_start = extension + 1)
+    # names(probes) <- paste0("HDR probe ", seq_along(probes), " for ", temp_name)
+    # hdr_probes <- c(hdr_probes, probes)
   }
 
   # find guides in +-100 window CCN/NGG get these sequences
-  window <- origin_mutation + guide_distance
+  window <- resize(origin_mutation, width = guide_distance * 2, fix = "center")
   mutated_seq <- replaceAt(genomic_seq[[1]],
                            at = ranges(origin_mutation),
                            value = DNAStringSet(origin_mutation$replacement))
@@ -275,25 +149,25 @@ design_by_template <- function(ensemble_transcript_id,
     pam_rve
   }
 
-  # probes
-  # Reference probes - outside of the SNP area
-  # Length/Tm= 20-25 bp, 60+/-1 oC
-  ref_seq <- IRanges(start = start(origin_mutation), width = 1) + 120
-  ref_seq <- setdiff(ref_seq, IRanges(start = start(origin_mutation), width = 1) + 20)
-  # two chunks that can be used for Ref probes
-  ref_probes <- c(design_probes(mutation_name, start(ref_seq[1]), end(ref_seq[1]), genomic_seq[[1]],
-                                origin_mut_start = extension + 1),
-                  design_probes(mutation_name, start(ref_seq[2]), end(ref_seq[2]), genomic_seq[[1]],
-                                origin_mut_start = extension + 1))
-  names(ref_probes) <- paste0("Ref probe ", seq_along(ref_probes))
-
-  # NHEJ probe - ~20 bp and have Tm values 58-60oC
-  # contain the original mutated sequence  no SNPs and no correction of the mutation
-  nhej_probes <- design_probes(mutation_name,
-                               start(origin_mutation) - 18, start(origin_mutation) + 18, mutated_seq,
-                               len_min = 19, len_max = 25, tmin = 50, tmax = 65,
-                               origin_mut_start = extension + 1)
-  names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
+  # # probes
+  # # Reference probes - outside of the SNP area
+  # # Length/Tm= 20-25 bp, 60+/-1 oC
+  # ref_seq <- IRanges(start = start(origin_mutation), width = 1) + 120
+  # ref_seq <- setdiff(ref_seq, IRanges(start = start(origin_mutation), width = 1) + 20)
+  # # two chunks that can be used for Ref probes
+  # ref_probes <- c(design_probes(mutation_name, start(ref_seq[1]), end(ref_seq[1]), genomic_seq[[1]],
+  #                               origin_mut_start = extension + 1),
+  #                 design_probes(mutation_name, start(ref_seq[2]), end(ref_seq[2]), genomic_seq[[1]],
+  #                               origin_mut_start = extension + 1))
+  # names(ref_probes) <- paste0("Ref probe ", seq_along(ref_probes))
+  #
+  # # NHEJ probe - ~20 bp and have Tm values 58-60oC
+  # # contain the original mutated sequence  no SNPs and no correction of the mutation
+  # nhej_probes <- design_probes(mutation_name,
+  #                              start(origin_mutation) - 18, start(origin_mutation) + 18, mutated_seq,
+  #                              len_min = 19, len_max = 25, tmin = 50, tmax = 65,
+  #                              origin_mut_start = extension + 1)
+  # names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
 
 
   # first we write the sequence
@@ -310,6 +184,17 @@ design_by_template <- function(ensemble_transcript_id,
   write.table(gr, file = file.path(output_dir, paste0(mutation_name, "_0based.csv")),
               quote = F, sep = "\t", row.names = F, col.names = T)
 
+  gxt <- data.frame("Guide name" = rep(names(guides), each = length(repair_template)),
+                    "Guide sequence" = rep(guides$original, each = length(repair_template)),
+                    "Repair template name " = rep(names(repair_template), length(guides)),
+                    "Repair template sequence" = rep(repair_template$replacement, length(guides)))
+  write.table(gxt, file = file.path(output_dir, paste0(mutation_name, "_0based_guides_x_templates.csv")),
+              quote = F, sep = "\t", row.names = F, col.names = T)
+
   # lets try to construct gff3 file for snapgene
   rtracklayer::export.gff3(all_combined, file.path(output_dir, paste0(mutation_name, ".gff3")))
+  rtracklayer::export.gff3(GRanges(seqnames = mutation_name,
+                                   ranges = mask_seq,
+                                   strand = "+",
+                                   type = "CDS"), file.path(output_dir, paste0(mutation_name, "_cds.gff3")))
 }
