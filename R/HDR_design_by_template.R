@@ -26,6 +26,10 @@
 #' @param genome BSgenome of your genome, compatible with annotation file, by default it is hg38.
 #' @param guide_distance Window around which we should search for guides, relatively to the mutation loci. Defualt is 10 + 17bp.
 #' @param extension How many bases upstream/downstream from the mutation loci should we include Default is 400.
+#' @param positions_to_mutate Which positions from the mutation are available for mutation. By default its -30:30
+#' leaving 20bp on each side of the template for the in case of incomplete integration of the template. Also codon
+#' occupied by the mutation is not included in the change.
+#' @param mutations_per_template How many codons should be mutated per template.
 #' @param seed Ensures reproducibility of the random parts of the pipeline.
 #' @return writes files to the specified directory, might overwrite
 #' @import Biostrings GenomicFeatures GenomicRanges IRanges BSgenome.Hsapiens.UCSC.hg38

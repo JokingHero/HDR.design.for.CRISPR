@@ -2,8 +2,8 @@
 % Please edit documentation in R/HDRdesignForCRISPR.R
 \docType{package}
 \name{HDR.design.for.CRISPR}
-\alias{HDR.design.for.CRISPR}
 \alias{HDR.design.for.CRISPR-package}
+\alias{HDR.design.for.CRISPR}
 \title{HDR.design.for.CRISPR package}
 \description{
 Design HDR repair for CRISPR.

@@ -1,14 +1,14 @@
 Package: HDR.design.for.CRISPR
 Type: Package
 Title: HDR design for CRISPR
-Version: 0.0.6
+Version: 0.0.8
 Authors@R: 
     person("Kornel", "Labun", , "email@kornellabun.com", role = c("aut", "cre"))
 Description: Design CRISPR and probes for CRISPR HDR repair of the alleles.
 License: AGPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.2.3
+RoxygenNote: 7.3.0
 Depends:
     R (>= 4.2.0)
 Imports:
@@ -19,7 +19,8 @@ Imports:
     GenomicRanges,
     BSgenome.Hsapiens.UCSC.hg38,
     rtracklayer,
-    TmCalculator
+    TmCalculator,
+    crisprScore
 Suggests: 
     knitr,
     rmarkdown,
@@ -30,5 +31,6 @@ Collate:
     'HDRdesignForCRISPR.R'
     'mutate_template.R'
     'cdna_diversification.R'
+    'HDR_design_by_template_best_guide.R'
 VignetteBuilder: knitr
 Config/testthat/edition: 3
