@@ -1,26 +1,32 @@
-# rm(list = ls(all.names = TRUE))
-# gc(reset = T)
-#
-# library(Biostrings)
-# library(GenomicFeatures)
-# library(GenomicRanges)
-# library(IRanges)
-# library(BSgenome.Hsapiens.UCSC.hg38)
-# library(crisprScore)
-#
-# ensemble_transcript_id = "ENST00000399837.8"
-# mutation_loci = 506
-# mutation_original = "G"
-# mutation_replacement = "A"
-# mutation_name = "R169Q"
-# output_dir = "~/"
-# annotation = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/Oline_seqeuncing_HDR_14_07_2023/gencode.v42.annotation.gff3.gz"
-# genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
-# guide_distance = 10 + 17
-# extension = 400
-# positions_to_mutate = -19:19
-# mutations_per_template = 4
-# seed = 42
+rm(list = ls(all.names = TRUE))
+gc(reset = T)
+
+library(Biostrings)
+library(GenomicFeatures)
+library(GenomicRanges)
+library(IRanges)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(crisprScore)
+library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
+
+ensemble_transcript_id = "ENST00000399837.8"
+mutation_loci = 506
+mutation_original = "G"
+mutation_replacement = "A"
+mutation_name = "R169Q"
+output_dir = "~/"
+annotation = "/home/ai/Projects/uib/crispr/HDR.design.for.CRISPR/gencode.v42.annotation.gff3"
+genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+guide_distance = 10 + 17
+extension = 400
+positions_to_mutate = -19:19
+mutations_per_template = 4
+seed = 42
+score_efficiency = FALSE
+snps = SNPlocs.Hsapiens.dbSNP155.GRCh38
+intron_bp = 2
+exon_bp = 0
+source("./R/utils.R")
 
 # ensemble_transcript_id <- "ENST00000374202.7"
 # mutation_loci <- 172
@@ -37,8 +43,11 @@
 
 #' @title Design best CRISPR guide for fixing mutation
 #'
-#' @description Design CRISPR guide and HDR repair template so that it auto-inhibits the guide.
-#'
+#' @description Designs one optimized template for each of the guides overlapping site of interest.
+#' Templates are optimized, by selecting synonymous SNPs that have the highest chance of disrupting
+#' guides, minimizing disruption to other genomic functions by checking with submitted annotation file,
+#' prioritizing SNPs that are already available in the population submitted through `snps
+#' parameter. Guides are ranked first, by their inhibition potential, and further by efficiency scoring.
 #' @param ensemble_transcript_id This has to be ensemble transcript id e.g. ENST00000307851.9
 #' @param mutation_loci Position on the gene that is mutated e.g. 245
 #' @param mutation_original What was the original base on the genome? e.g. A
@@ -72,11 +81,16 @@ design_template_for_best_guide <-
            extension = 400,
            positions_to_mutate = -19:19,
            mutations_per_template = 4,
-           seed = 42) {
+           seed = 42,
+           intron_bp = 2,
+           exon_bp = 0,
+           snps = NULL, # SNPlocs.Hsapiens.dbSNP155.GRCh38
+           score_efficiency = FALSE) {
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  cds <- get_cds(annotation, ensemble_transcript_id)
+  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+  cds <- get_cds(txdb, ensemble_transcript_id)
   mut_genomic <- get_genomic_mutation(cds, mutation_loci)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
@@ -97,8 +111,27 @@ design_template_for_best_guide <-
                                  width = extension * 2, fix = "center")
   mask_seq <- shift(mask_cds, - (start(tx_loci_with_introns) - 1)) # parts of the sequence that are used for the cds
 
+  # ranges here are relative to the extend
   mutations <- get_all_possilbe_mutations(
     mutation_name, positions_to_mutate, mutation_loci, cds_seq, aa_cds_seq, extension)
+
+  # overlap mutations with anything on GFF
+  # transform mutations to Genomic coordinates
+  mutations_genomic <- sapply(mutations$cds_pos,
+                              function(x) get_genomic_mutation(cds, x))
+  mutations_genomic <- unlist(GRangesList(mutations_genomic))
+  is_not_over_ss <- over_splice_sites(
+    mutations_genomic, txdb, intron_bp, exon_bp)
+  mutations <- mutations[is_not_over_ss]
+  mutations_genomic <- mutations_genomic[is_not_over_ss]
+  if (!is.null(snps)) {
+    mutations <- annotate_mutations_with_snps(
+      mutations, mutations_genomic, snps)
+  }
+  mutations <- annotate_mutations_with_tx(mutations, mutations_genomic, txdb)
+  mutations <- annotate_mutations_with_noncoding(mutations, mutations_genomic, annotation)
+  # rank mutations
+
 
   # original mutation
   origin_mutation <- GRanges(
@@ -111,7 +144,8 @@ design_template_for_best_guide <-
     codon = ceiling(mutation_loci / 3))
 
   # find and score guides in a window
-  guides <- get_guides_and_scores(origin_mutation, mutation_name, guide_distance, genomic_seq)
+  guides <- get_guides_and_scores(origin_mutation, mutation_name, guide_distance,
+                                  genomic_seq, scores = score_efficiency)
   pams <- resize(flank(guides, width = 3, start = FALSE), width = 2, fix = "end") # GG part
 
   # now the repair template sequences
@@ -139,7 +173,6 @@ design_template_for_best_guide <-
     repair_template <- c(repair_template, rt)
   }
 
-
   # first we write the sequence
   Biostrings::writeXStringSet(genomic_seq,
                               file.path(output_dir, paste0(mutation_name, ".fa")))
@@ -153,14 +186,24 @@ design_template_for_best_guide <-
   write.table(gr, file = file.path(output_dir, paste0(mutation_name, "_0based.csv")),
               quote = F, sep = "\t", row.names = F, col.names = T)
 
-  gxt <- data.frame("Guide name" = names(guides),
-                    "Guide sequence" = guides$original,
-                    "Repair template name " = names(repair_template),
-                    "Repair template sequence" = repair_template$replacement,
-                    pam_disrupted = repair_template$pam_disrupted,
-                    guide_disrupted = repair_template$guide_disrupted,
-                    score_rank = guides$rank_by_scores)
-  gxt <- gxt[order(gxt$pam_disrupted, gxt$guide_disrupted, -gxt$score_rank, decreasing = T), ]
+  if (score_efficiency) {
+    gxt <- data.frame("Guide name" = names(guides),
+                      "Guide sequence" = guides$original,
+                      "Repair template name " = names(repair_template),
+                      "Repair template sequence" = repair_template$replacement,
+                      pam_disrupted = repair_template$pam_disrupted,
+                      guide_disrupted = repair_template$guide_disrupted,
+                      score_rank = guides$rank_by_scores)
+    gxt <- gxt[order(gxt$pam_disrupted, gxt$guide_disrupted, -gxt$score_rank, decreasing = T), ]
+  } else {
+    gxt <- data.frame("Guide name" = names(guides),
+                      "Guide sequence" = guides$original,
+                      "Repair template name " = names(repair_template),
+                      "Repair template sequence" = repair_template$replacement,
+                      pam_disrupted = repair_template$pam_disrupted,
+                      guide_disrupted = repair_template$guide_disrupted)
+    gxt <- gxt[order(gxt$pam_disrupted, gxt$guide_disrupted, decreasing = T), ]
+  }
   write.table(gxt, file = file.path(output_dir, paste0(mutation_name, "_0based_guides_x_templates.csv")),
               quote = F, sep = "\t", row.names = F, col.names = T)
 

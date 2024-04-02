@@ -52,7 +52,8 @@ design_by_template <- function(ensemble_transcript_id,
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  cds <- get_cds(annotation, ensemble_transcript_id)
+  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+  cds <- get_cds(txdb, ensemble_transcript_id)
   mut_genomic <- get_genomic_mutation(cds, mutation_loci)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)

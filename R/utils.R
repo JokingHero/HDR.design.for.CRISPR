@@ -1,5 +1,4 @@
-get_cds <- function(annotation, ensemble_transcript_id) {
-  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+get_cds <- function(txdb, ensemble_transcript_id) {
   cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
   cds <- cds[!duplicated(names(cds))]
   cds <- cds[ensemble_transcript_id]
@@ -10,6 +9,7 @@ get_genomic_mutation <- function(cds, mutation_loci) {
   mut_genomic <- GenomicFeatures::pmapFromTranscripts(
     IRanges(mutation_loci, width = 1), cds)
   mut_genomic <- mut_genomic[[1]][mut_genomic[[1]]$hit]
+  mut_genomic
 }
 
 get_all_possilbe_mutations <- function(
@@ -74,7 +74,8 @@ get_all_possilbe_mutations <- function(
                    original = as.character(original_codon_seq[codon_position]),
                    replacement = "",
                    shift = i,
-                   codon = codon_count)
+                   codon = codon_count,
+                   cds_pos = this_pos_mutation_loci)
     mut <- rep(mut, length(replacement))
     mut$replacement <- replacement
     mutations <- c(mutations, mut)
@@ -156,6 +157,80 @@ get_combinations_of_mutations_for_guide <- function(mutations, mutations_per_tem
   list(muts, length(pam_disrupted), length(guide_disrupted))
 }
 
+
+annotate_mutations_with_snps <- function(mutations, mutations_genomic, snps) {
+  seqlevelsStyle(mutations_genomic) <- seqlevelsStyle(snps)
+  sbo <- GRanges(snpsByOverlaps(snps, mutations_genomic))
+  hits <- findOverlaps(mutations_genomic, sbo)
+  mutations$RefSNP_id <- ""
+  mutations$alleles_as_ambig <- ""
+  mutations$RefSNP_id[queryHits(hits)] <- sbo$RefSNP_id[subjectHits(hits)]
+  mutations$alleles_as_ambig[queryHits(hits)] <- sbo$alleles_as_ambig[subjectHits(hits)]
+  mutations$compatible <- mapply(function(base, iupac){
+    stringr::str_detect(Biostrings:::IUPAC_CODE_MAP[iupac], base)
+  }, mutations$replacement, mutations$alleles_as_ambig)
+  mutations
+}
+
+over_splice_sites <- function(
+    mutations_genomic, txdb, intron_bp, exon_bp) {
+  ex <- exons(txdb)
+  ex <- c(GRanges(seqnames = seqnames(ex),
+                  ranges = IRanges(start = start(ex) - intron_bp,
+                                   end = start(ex) - exon_bp - 1),
+                  strand = "*"),
+          GRanges(seqnames = seqnames(ex),
+                  ranges = IRanges(start = end(ex) - exon_bp + 1,
+                                   end = end(ex) + intron_bp),
+                  strand = "*"))
+  return(!mutations_genomic %over% ex)
+}
+
+annotate_mutations_with_tx <- function(mutations, mutations_genomic, txdb) {
+  mutations$syn_tx_count <- 0
+  mutations$syn_tx <- ""
+  mutations$overlap_tx_count <- 0
+
+  all_tx_cds <- suppressWarnings(GenomicFeatures::cdsBy(
+    txdb, by = "tx", use.names = T))
+  for (i in seq_along(mutations)) {
+    to_check <- all_tx_cds[all_tx_cds %over% mutations_genomic[i]]
+    i_cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, to_check)
+    i_aa_cds_seq <- Biostrings::translate(i_cds_seq)
+    i_loc <- GenomicFeatures::mapToTranscripts(mutations_genomic[i], to_check)
+    nonsyn <- c()
+    for (j in seq_along(to_check)) {
+      ji_cds_seq <- i_cds_seq[[j]]
+      if (as.character(ji_cds_seq[start(i_loc[j])]) != mutations[i]$original) {
+        stop("Nonysynomous SNPs reference mismatch.")
+      }
+      ji_cds_seq[start(i_loc[j])] <- DNAString(mutations[i]$replacement)
+      if (i_aa_cds_seq[[j]] != Biostrings::translate(ji_cds_seq)) {
+        nonsyn <- c(nonsyn, names(to_check)[j])
+      }
+    }
+    mutations$syn_tx_count[i] <- length(nonsyn)
+    mutations$syn_tx[i] <- paste0(nonsyn, collapse = ";")
+    mutations$overlap_tx_count[i] <- length(to_check)
+  }
+  mutations
+}
+
+annotate_mutations_with_noncoding <- function(mutations, mutations_genomic, annotation) {
+  igff <- rtracklayer::import(annotation)
+  igff <- igff[igff$gene_type != "protein_coding"]
+  mutations$noncoding <- ""
+  for (i in seq_along(mutations)) {
+    i_igff <- igff[igff %over% mutations_genomic[i]]
+    if (length(i_igff) > 0) {
+      mutations$noncoding[i] <-
+        paste0(unique(paste0(i_igff$gene_name, " ", i_igff$gene_type)),
+               collapse = "; ")
+    }
+  }
+  mutations
+}
+
 melting_temp <- function(x) TmCalculator::Tm_GC(
   ntseq = as.character(x),
   variant = "Primer3Plus", Na = 50, outlist = FALSE)
@@ -184,7 +259,8 @@ design_probes <- function(mutation_name, st, sp, s, tmin = 59, tmax = 61, len_mi
   return(probes)
 }
 
-get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance, genomic_seq) {
+get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance, genomic_seq,
+                                  scores = TRUE) {
   window <- resize(origin_mutation, width = guide_distance * 2, fix = "center")
   mutated_seq <- replaceAt(genomic_seq[[1]],
                            at = ranges(origin_mutation),
@@ -201,6 +277,7 @@ get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance
     bp30 <- as.character(
       extractAt(mutated_seq,
                 resize(bp27, width = 30, fix = "start")))
+    bp20 <- flank(pam_fwd + 1, width = 20, start = T)
 
     # doench_2016 <- sapply(bp30, function(x) getAzimuthScores(x)$score) # problems...
     # deweirdt_2022 <- sapply(bp30,
@@ -209,27 +286,26 @@ get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance
     #   extractAt(mutated_seq, bp27)),
     #   function(x) getDeepHFScores(x, enzyme = "WT", promoter = "U6")$score) # not windows
 
-    doench_2014 <- sapply(bp30, function(x) crisprScore::getRuleSet1Scores(x)$score)
-    kim_2019 <- sapply(bp30, function(x) crisprScore::getDeepSpCas9Scores(x)$score)
-    moreno_mateos_2015 <- sapply(as.character(
-      extractAt(mutated_seq,
-                resize(resize(pam_fwd, width = 29, fix = "end"), width = 35, fix = "start"))),
-      function(x) crisprScore::getCRISPRscanScores(x)$score)
-
-    bp20 <- flank(pam_fwd + 1, width = 20, start = T)
-    labuhn_2018 <- sapply(as.character(extractAt(mutated_seq, bp20)),
-                          function(x) crisprScore::getCRISPRaterScores(x)$score)
-
+    if (scores) {
+      doench_2014 <- sapply(bp30, function(x) crisprScore::getRuleSet1Scores(x)$score)
+      kim_2019 <- sapply(bp30, function(x) crisprScore::getDeepSpCas9Scores(x)$score)
+      moreno_mateos_2015 <- sapply(as.character(
+        extractAt(mutated_seq,
+                  resize(resize(pam_fwd, width = 29, fix = "end"), width = 35, fix = "start"))),
+        function(x) crisprScore::getCRISPRscanScores(x)$score)
+      labuhn_2018 <- sapply(as.character(extractAt(mutated_seq, bp20)),
+                            function(x) crisprScore::getCRISPRaterScores(x)$score)
+    }
     names(bp20) <- paste0("NGG_", as.character(seq_along(bp20)))
     pam_fwd <- GRanges(seqnames = mutation_name,
                        ranges = bp20,
                        strand = "+",
                        original = as.character(extractAt(mutated_seq, bp20)),
                        shift = end(bp20) - start(origin_mutation),
-                       doench_2014 = doench_2014,
-                       moreno_mateos_2015 = moreno_mateos_2015,
-                       labuhn_2018 = labuhn_2018,
-                       kim_2019 = kim_2019)
+                       doench_2014 = if (scores) doench_2014 else NA,
+                       moreno_mateos_2015 = if (scores) moreno_mateos_2015 else NA,
+                       labuhn_2018 = if (scores) labuhn_2018 else NA,
+                       kim_2019 = if (scores) kim_2019 else NA)
   }
 
   if (length(pam_rve) > 0) {
@@ -237,28 +313,28 @@ get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance
     bp30 <- as.character(
       reverseComplement(extractAt(mutated_seq,
                                   resize(bp27, width = 30, fix = "end"))))
-
-    doench_2014 <- sapply(bp30, function(x) crisprScore::getRuleSet1Scores(x)$score)
-    kim_2019 <- sapply(bp30, function(x) crisprScore::getDeepSpCas9Scores(x)$score)
-    moreno_mateos_2015 <- sapply(as.character(
-      reverseComplement(extractAt(mutated_seq,
-                                  resize(resize(pam_rve, width = 29, fix = "start"), width = 35, fix = "end")))),
-      function(x) crisprScore::getCRISPRscanScores(x)$score)
-
     bp20 <- flank(pam_rve + 1, width = 20, start = F)
-    labuhn_2018 <- sapply(as.character(reverseComplement(extractAt(mutated_seq, bp20))),
-                          function(x) crisprScore::getCRISPRaterScores(x)$score)
 
+    if (scores) {
+      doench_2014 <- sapply(bp30, function(x) crisprScore::getRuleSet1Scores(x)$score)
+      kim_2019 <- sapply(bp30, function(x) crisprScore::getDeepSpCas9Scores(x)$score)
+      moreno_mateos_2015 <- sapply(as.character(
+        reverseComplement(extractAt(mutated_seq,
+                                    resize(resize(pam_rve, width = 29, fix = "start"), width = 35, fix = "end")))),
+        function(x) crisprScore::getCRISPRscanScores(x)$score)
+      labuhn_2018 <- sapply(as.character(reverseComplement(extractAt(mutated_seq, bp20))),
+                            function(x) crisprScore::getCRISPRaterScores(x)$score)
+    }
     names(bp20) <- paste0("CCN_", as.character(seq_along(bp20)))
     pam_rve <- GRanges(seqnames = mutation_name,
                        ranges = bp20,
                        strand = "-",
                        original = as.character(reverseComplement(extractAt(mutated_seq, bp20))),
                        shift = start(bp20) - start(origin_mutation),
-                       doench_2014 = doench_2014,
-                       moreno_mateos_2015 = moreno_mateos_2015,
-                       labuhn_2018 = labuhn_2018,
-                       kim_2019 = kim_2019)
+                       doench_2014 = if (scores) doench_2014 else NA,
+                       moreno_mateos_2015 = if (scores) moreno_mateos_2015 else NA,
+                       labuhn_2018 = if (scores) labuhn_2018 else NA,
+                       kim_2019 = if (scores) kim_2019 else NA)
   }
   guides <- if (length(pam_fwd) > 0 & length(pam_rve) > 0) {
     c(pam_fwd, pam_rve)
@@ -268,11 +344,18 @@ get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance
     pam_rve
   }
 
-  rank_score <- data.frame(doench_2014 = rank(-1 * guides$doench_2014),
-                           moreno_mateos_2015 = rank(-1 * guides$moreno_mateos_2015),
-                           labuhn_2018 = rank(-1 * guides$labuhn_2018),
-                           kim_2019 = rank(- 1* guides$kim_2019))
-  rank_score$rank <- apply(rank_score, 1, function(x) exp(mean(log(x))))
-  guides$rank_by_scores <- rank(rank_score$rank)
+  if (scores) {
+    rank_score <- data.frame(doench_2014 = rank(-1 * guides$doench_2014),
+                             moreno_mateos_2015 = rank(-1 * guides$moreno_mateos_2015),
+                             labuhn_2018 = rank(-1 * guides$labuhn_2018),
+                             kim_2019 = rank(- 1* guides$kim_2019))
+    rank_score$rank <- apply(rank_score, 1, function(x) exp(mean(log(x))))
+    guides$rank_by_scores <- rank(rank_score$rank)
+  } else {
+    guides$doench_2014 <- NULL
+    guides$moreno_mateos_2015 <- NULL
+    guides$labuhn_2018 <- NULL
+    guides$kim_2019 <- NULL
+  }
   guides
 }

@@ -90,7 +90,8 @@ synonymously_mutate_cds <- function(
   set.seed(seed) # ensure reproducible randomness
 
   # grab the transcript location on the genome
-  cds <- get_cds(annotation, ensemble_transcript_id)
+  txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annotation))
+  cds <- get_cds(txdb, ensemble_transcript_id)
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
 

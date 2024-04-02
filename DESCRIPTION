@@ -1,14 +1,14 @@
 Package: HDR.design.for.CRISPR
 Type: Package
 Title: HDR design for CRISPR
-Version: 0.0.8
+Version: 0.0.10
 Authors@R: 
     person("Kornel", "Labun", , "email@kornellabun.com", role = c("aut", "cre"))
 Description: Design CRISPR and probes for CRISPR HDR repair of the alleles.
 License: AGPL (>= 3)
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.0
+RoxygenNote: 7.3.1
 Depends:
     R (>= 4.2.0)
 Imports:

@@ -2,6 +2,7 @@
 
 export(design_by_template)
 export(design_template_for_best_guide)
+export(design_template_for_best_guide_no_eff)
 export(get_genomic_seq)
 export(synonymously_mutate_cds)
 export(synonymously_mutate_template)
