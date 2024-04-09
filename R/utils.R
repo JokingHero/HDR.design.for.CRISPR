@@ -118,48 +118,81 @@ get_combinations_of_mutations <- function(mutations, n, mutations_per_template) 
   selected_combs
 }
 
-get_combinations_of_mutations_for_guide <- function(mutations, mutations_per_template, pam, guide) {
-  pam_disrupted <- which(ranges(mutations) %over% ranges(pam))
-  guide_disrupted <- which(ranges(mutations) %over% ranges(guide))
-  # not the same codons as in PAM
-  if (length(pam_disrupted) != 0) {
-    pam_disrupted <- sapply(
-      unique(mutations$codon[pam_disrupted]),
-      function(x) pam_disrupted[mutations$codon[pam_disrupted] == x][1])
-  }
-  if (length(guide_disrupted) != 0) {
-    guide_disrupted <- guide_disrupted[
-      !mutations$codon[guide_disrupted] %in% mutations$codon[pam_disrupted]]
-    guide_disrupted <- sapply(
-      unique(mutations$codon[guide_disrupted]),
-      function(x) guide_disrupted[mutations$codon[guide_disrupted] == x][1])
-  }
 
-  if (length(pam_disrupted) >= mutations_per_template) {
-    muts <- sample(pam_disrupted, mutations_per_template, replace = F)
-  } else if ((length(pam_disrupted) + length(guide_disrupted)) >= mutations_per_template) {
-    guide_disrupted <- guide_disrupted[
-      order(distance(ranges(mutations[guide_disrupted]), ranges(pam)))]
-    guide_disrupted <- guide_disrupted[1:(mutations_per_template - length(pam_disrupted))]
-    muts <- c(pam_disrupted, guide_disrupted)
+# mutations can't also be using the same codon more than 1 time
+# mutations can't repeat
+# we prefer clean mutations (no overlap from annot)
+# we prefer mutations that mutate the pam > guide > the rest
+# for SNPs we go with 123 as above and for annotations
+get_combinations_of_mutations_for_guide <- function(
+    mutations, mutations_per_template, pam, guide) {
+  mutations$pam_disrupted <- ranges(mutations) %over% ranges(pam)
+  mutations$guide_disrupted <- ranges(mutations) %over% ranges(guide)
+  mutations$distance_to_guide <- distance(ranges(mutations), ranges(pam))
+  mutations$overlaps_something <- mutations$noncoding != "" | mutations$nonsyn_tx_count > 0
+  if (!is.null(mutations$compatible)) {
+    mutations$compatibility_map <- rep(3, length(mutations))
+    mutations$compatibility_map[is.na(mutations$compatible)] <- 2
+    mutations$compatibility_map[which(mutations$compatible)] <- 1
   } else {
-    pam_and_guide <- c(pam_disrupted, guide_disrupted)
-    npg <- seq_along(mutations)
-    npg <- npg[!npg %in% pam_and_guide]
-    npg <- sapply(
-      unique(mutations$codon[npg]),
-      function(x) npg[mutations$codon[npg] == x][1])
-    npg <- npg[
-      order(distance(ranges(mutations[npg]), ranges(pam)))]
-    npg <- npg[1:(mutations_per_template - length(pam_and_guide))]
-    muts <- c(pam_and_guide, npg)
+    mutations$compatibility_map <- rep(2, length(mutations)) # all unknown
   }
-  list(muts, length(pam_disrupted), length(guide_disrupted))
+  # FALSES go in front of TRUES
+  ordering <- order(mutations$overlaps_something,
+                    !mutations$pam_disrupted,
+                    !mutations$guide_disrupted,
+                    mutations$compatibility_map,
+                    mutations$distance_to_guide,
+                    decreasing = FALSE)
+  mutations <- mutations[ordering]
+  mutations <- mutations[!duplicated(mutations$codon)] # only one change per codon
+  mutations <- mutations[1:mutations_per_template] # might be NULL
+
+  list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted),
+       any(mutations$overlaps_something), sum(mutations$compatibility_map))
+}
+
+# this is more global version of above
+# we want to find the SNPs that disable as many of the guides as we can
+# we design for single template for all guides
+get_combinations_of_mutations_for_guides <- function(
+    mutations, mutations_per_template, pams, guides) {
+  mutations$pam_disrupted <- countOverlaps(ranges(mutations), ranges(pams))
+  mutations$guide_disrupted <- countOverlaps(ranges(mutations), ranges(guides))
+  mutations$overlaps_something <- mutations$noncoding != "" | mutations$nonsyn_tx_count > 0
+  if (!is.null(mutations$compatible)) {
+    mutations$compatibility_map <- rep(3, length(mutations))
+    mutations$compatibility_map[is.na(mutations$compatible)] <- 2
+    mutations$compatibility_map[which(mutations$compatible)] <- 1
+  } else {
+    mutations$compatibility_map <- rep(2, length(mutations)) # all unknown
+  }
+  mutations$distance_to_guide <- sapply(
+    seq_along(mutations),
+    function(x) {
+      y <- mutations[x]
+      min(distance(ranges(pams), ranges(y)))
+  })
+
+  # FALSES go in front of TRUES
+  ordering <- order(mutations$overlaps_something,
+                    -mutations$pam_disrupted,
+                    -mutations$guide_disrupted,
+                    mutations$compatibility_map,
+                    mutations$distance_to_guide,
+                    decreasing = FALSE)
+  mutations <- mutations[ordering]
+  mutations <- mutations[!duplicated(mutations$codon)] # only one change per codon
+  mutations <- mutations[1:mutations_per_template] # might be NULL
+
+  list(mutations, sum(ranges(pams) %over% ranges(mutations)),
+       sum(ranges(guides) %over% ranges(mutations)),
+       any(mutations$overlaps_something), sum(mutations$compatibility_map))
 }
 
 
 annotate_mutations_with_snps <- function(mutations, mutations_genomic, snps) {
-  seqlevelsStyle(mutations_genomic) <- seqlevelsStyle(snps)
+  GenomeInfoDb::seqlevelsStyle(mutations_genomic) <- GenomeInfoDb::seqlevelsStyle(snps)
   sbo <- GRanges(snpsByOverlaps(snps, mutations_genomic))
   hits <- findOverlaps(mutations_genomic, sbo)
   mutations$RefSNP_id <- ""
@@ -167,7 +200,7 @@ annotate_mutations_with_snps <- function(mutations, mutations_genomic, snps) {
   mutations$RefSNP_id[queryHits(hits)] <- sbo$RefSNP_id[subjectHits(hits)]
   mutations$alleles_as_ambig[queryHits(hits)] <- sbo$alleles_as_ambig[subjectHits(hits)]
   mutations$compatible <- mapply(function(base, iupac){
-    stringr::str_detect(Biostrings:::IUPAC_CODE_MAP[iupac], base)
+    stringr::str_detect(Biostrings::IUPAC_CODE_MAP[iupac], base)
   }, mutations$replacement, mutations$alleles_as_ambig)
   mutations
 }
@@ -187,8 +220,8 @@ over_splice_sites <- function(
 }
 
 annotate_mutations_with_tx <- function(mutations, mutations_genomic, txdb) {
-  mutations$syn_tx_count <- 0
-  mutations$syn_tx <- ""
+  mutations$nonsyn_tx_count <- 0
+  mutations$nonsyn_tx <- ""
   mutations$overlap_tx_count <- 0
 
   all_tx_cds <- suppressWarnings(GenomicFeatures::cdsBy(
@@ -209,8 +242,8 @@ annotate_mutations_with_tx <- function(mutations, mutations_genomic, txdb) {
         nonsyn <- c(nonsyn, names(to_check)[j])
       }
     }
-    mutations$syn_tx_count[i] <- length(nonsyn)
-    mutations$syn_tx[i] <- paste0(nonsyn, collapse = ";")
+    mutations$nonsyn_tx_count[i] <- length(nonsyn)
+    mutations$nonsyn_tx[i] <- paste0(nonsyn, collapse = ";")
     mutations$overlap_tx_count[i] <- length(to_check)
   }
   mutations

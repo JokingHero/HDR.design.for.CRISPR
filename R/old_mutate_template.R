@@ -56,7 +56,7 @@ synonymously_mutate_template <- function(
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
     extension = 50,
     positions_to_mutate = -30:30,
-    mutations_per_template = 4,
+    mutations_per_template = 3,
     n = 96,
     seed = 42) {
 
