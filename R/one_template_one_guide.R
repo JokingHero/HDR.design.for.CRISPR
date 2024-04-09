@@ -72,7 +72,7 @@
 #' @param score_efficiency If you have installed relevant models from crisprScore package, you can set it to true to include scores from these models. Default is FALSE.
 #' @param seed Ensures reproducibility of the random parts of the pipeline.
 #' @return writes files to the specified directory, might overwrite
-#' @import Biostrings GenomicFeatures GenomicRanges IRanges BSgenome.Hsapiens.UCSC.hg38 VariantAnnotation
+#' @import Biostrings GenomicFeatures GenomicRanges SummarizedExperiment IRanges BSgenome BSgenome.Hsapiens.UCSC.hg38 VariantAnnotation GenomeInfoDb
 #' @importFrom utils write.table
 #' @export
 #'
@@ -135,9 +135,9 @@ design_one_template_for_each_guide <-
   mutations_genomic <- mutations_genomic[is_not_over_ss]
   if (!is.null(clinvar)) {
     vcf <- VariantAnnotation::readVcf(clinvar)
-    vcf <- rowRanges(vcf)
+    vcf <- SummarizedExperiment::rowRanges(vcf)
     vcf <- vcf[lengths(vcf) == 1]
-    GenomeInfoDb::seqlevelsStyle(vcf) <- GenomeInfoDb::seqlevelsStyle(mutations_genomic)
+    seqlevelsStyle(vcf) <- seqlevelsStyle(mutations_genomic)
     is_not_over_clinvar <- !mutations_genomic %over% vcf
     mutations <- mutations[is_not_over_clinvar]
     mutations_genomic <- mutations_genomic[is_not_over_clinvar]
@@ -151,7 +151,7 @@ design_one_template_for_each_guide <-
     mutations <- annotate_mutations_with_snps(
       mutations, mutations_genomic, snps)
   }
-  mutations <- annotate_mutations_with_tx(mutations, mutations_genomic, txdb)
+  mutations <- annotate_mutations_with_tx(genome, mutations, mutations_genomic, txdb)
   mutations <- annotate_mutations_with_noncoding(
     mutations, mutations_genomic, annotation)
 

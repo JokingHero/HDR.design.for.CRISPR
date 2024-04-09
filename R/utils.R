@@ -193,12 +193,12 @@ get_combinations_of_mutations_for_guides <- function(
 
 annotate_mutations_with_snps <- function(mutations, mutations_genomic, snps) {
   GenomeInfoDb::seqlevelsStyle(mutations_genomic) <- GenomeInfoDb::seqlevelsStyle(snps)
-  sbo <- GRanges(snpsByOverlaps(snps, mutations_genomic))
+  sbo <- GRanges(BSgenome::snpsByOverlaps(snps, mutations_genomic))
   hits <- findOverlaps(mutations_genomic, sbo)
   mutations$RefSNP_id <- ""
   mutations$alleles_as_ambig <- ""
-  mutations$RefSNP_id[queryHits(hits)] <- sbo$RefSNP_id[subjectHits(hits)]
-  mutations$alleles_as_ambig[queryHits(hits)] <- sbo$alleles_as_ambig[subjectHits(hits)]
+  mutations$RefSNP_id[S4Vectors::queryHits(hits)] <- sbo$RefSNP_id[S4Vectors::subjectHits(hits)]
+  mutations$alleles_as_ambig[S4Vectors::queryHits(hits)] <- sbo$alleles_as_ambig[S4Vectors::subjectHits(hits)]
   mutations$compatible <- mapply(function(base, iupac){
     stringr::str_detect(Biostrings::IUPAC_CODE_MAP[iupac], base)
   }, mutations$replacement, mutations$alleles_as_ambig)
@@ -219,7 +219,8 @@ over_splice_sites <- function(
   return(!mutations_genomic %over% ex)
 }
 
-annotate_mutations_with_tx <- function(mutations, mutations_genomic, txdb) {
+
+annotate_mutations_with_tx <- function(genome, mutations, mutations_genomic, txdb) {
   mutations$nonsyn_tx_count <- 0
   mutations$nonsyn_tx <- ""
   mutations$overlap_tx_count <- 0
