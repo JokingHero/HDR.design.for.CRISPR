@@ -1,7 +1,7 @@
 get_cds <- function(txdb, ensemble_transcript_id) {
   cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
-  cds <- cds[!duplicated(names(cds))]
   cds <- cds[ensemble_transcript_id]
+  cds <- cds[!duplicated(names(cds))]
   cds
 }
 

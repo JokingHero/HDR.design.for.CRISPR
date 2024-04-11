@@ -16,7 +16,7 @@
 # mutation_replacement = "A"
 # mutation_name = "R169Q"
 # output_dir = "~/"
-# annotation = "/home/ai/Projects/uib/crispr/HDR.design.for.CRISPR/gencode.v42.annotation.gff3"
+# annotation = "/home/ai/Projects/uib/crispr/gencode.v42.annotation.gff3"
 # genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
 # guide_distance = 10 + 17
 # extension = 400
@@ -25,10 +25,16 @@
 # seed = 42
 # score_efficiency = FALSE
 # snps = SNPlocs.Hsapiens.dbSNP155.GRCh38
-# clinvar = "/home/ai/Projects/uib/crispr/HDR.design.for.CRISPR/clinvar.vcf.gz"
+# clinvar = "/home/ai/Projects/uib/crispr/clinvar.vcf.gz"
 # intron_bp = 2
 # exon_bp = 0
 # source("./R/utils.R")
+#
+# ensemble_transcript_id = "ENST00000349496.11"
+# mutation_loci = 25118
+# mutation_original = "C"
+# mutation_replacement = "T"
+# mutation_name = "C25118T"
 
 # ensemble_transcript_id <- "ENST00000374202.7"
 # mutation_loci <- 172
@@ -104,6 +110,9 @@ design_one_template_for_each_guide <-
   cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
   aa_cds_seq <- Biostrings::translate(cds_seq)
 
+  if (isEmpty(mut_genomic)) {
+    stop("Your `mutation_loci` does not seem to be on the CDS.")
+  }
   if (as.character(Biostrings::getSeq(genome, mut_genomic)) != mutation_original) {
     stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
   }

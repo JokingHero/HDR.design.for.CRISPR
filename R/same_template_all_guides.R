@@ -106,6 +106,10 @@ design_one_template_for_all_guides <-
     cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, cds)[[1]]
     aa_cds_seq <- Biostrings::translate(cds_seq)
 
+    if (isEmpty(mut_genomic)) {
+      stop("Your `mutation_loci` does not seem to be on the CDS.")
+    }
+
     if (as.character(Biostrings::getSeq(genome, mut_genomic)) != mutation_original) {
       stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
     }
