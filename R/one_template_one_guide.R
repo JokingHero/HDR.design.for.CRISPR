@@ -31,7 +31,7 @@
 # source("./R/utils.R")
 #
 # ensemble_transcript_id = "ENST00000349496.11"
-# mutation_loci = 25118
+# mutation_loci = 110
 # mutation_original = "C"
 # mutation_replacement = "T"
 # mutation_name = "C25118T"
@@ -71,7 +71,7 @@
 #' leaving 20bp on each side of the template for the in case of incomplete integration of the template. Also codon
 #' occupied by the mutation is not included in the change.
 #' @param mutations_per_template How many codons should be mutated per template.
-#' @param intron_bp How many bp of the intronic part of splicing should be excluded from synonymous SNPs (default 2)?
+#' @param intron_bp How many bp of the intronic part of splicing should be excluded from synonymous SNPs (default 20, because of cryptic splice site potential)?
 #' @param exon_bp How many bp of the exonic part of splicing should be excluded from synonymous SNPs (default 0)?
 #' @param snps Can be either NULL or an object like SNPlocs.Hsapiens.dbSNP155.GRCh38 from library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
 #' @param clinvar This is a clinVar database VCF file location. You can download it here https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz and https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz.tbi
@@ -96,7 +96,7 @@ design_one_template_for_each_guide <-
            positions_to_mutate = -19:19,
            mutations_per_template = 3,
            seed = 42,
-           intron_bp = 2,
+           intron_bp = 20,
            exon_bp = 0,
            snps = NULL, # SNPlocs.Hsapiens.dbSNP155.GRCh38
            clinvar = NULL,
