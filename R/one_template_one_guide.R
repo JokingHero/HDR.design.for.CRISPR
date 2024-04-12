@@ -29,13 +29,13 @@
 # intron_bp = 2
 # exon_bp = 0
 # source("./R/utils.R")
-#
+
 # ensemble_transcript_id = "ENST00000349496.11"
 # mutation_loci = 110
 # mutation_original = "C"
 # mutation_replacement = "T"
 # mutation_name = "C25118T"
-
+#
 # ensemble_transcript_id <- "ENST00000374202.7"
 # mutation_loci <- 172
 # mutation_original <- "C"
@@ -48,6 +48,13 @@
 # mutation_original <- "A"
 # mutation_replacement <- "G"
 # mutation_name <- "tyr82cys"
+#
+#
+# ensemble_transcript_id = "ENST00000361099.8"
+# mutation_loci = 820
+# mutation_original = "C"
+# mutation_replacement = "T"
+# mutation_name = "STAT820"
 
 #' @title Design best CRISPR guide for fixing mutation
 #'
@@ -117,7 +124,7 @@ design_one_template_for_each_guide <-
     stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
   }
 
-  genomic_site <- resize(mut_genomic, width = extension * 2, fix = "center")
+  genomic_site <- resize(mut_genomic, width = extension * 2 + 1, fix = "center")
   genomic_seq <- Biostrings::getSeq(genome, genomic_site)
   names(genomic_seq) <- mutation_name
 
@@ -173,6 +180,10 @@ design_one_template_for_each_guide <-
     original = as.character(genomic_seq[[1]][extension + 1]),
     replacement = mutation_replacement, shift = 0,
     codon = ceiling(mutation_loci / 3))
+
+  if (origin_mutation$original != mutation_original) {
+    stop("Something is not ok with how our masks were calcualted here, report the error to the developers.")
+  }
 
   # find and score guides in a window
   guides <- get_guides_and_scores(origin_mutation, mutation_name, guide_distance,

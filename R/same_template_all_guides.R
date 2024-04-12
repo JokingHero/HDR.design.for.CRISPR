@@ -114,7 +114,7 @@ design_one_template_for_all_guides <-
       stop("Your `mutation_original` is not the same as the one on the transcript sequence! Check transcirpt id.")
     }
 
-    genomic_site <- resize(mut_genomic, width = extension * 2, fix = "center")
+    genomic_site <- resize(mut_genomic, width = extension * 2 + 1, fix = "center")
     genomic_seq <- Biostrings::getSeq(genome, genomic_site)
     names(genomic_seq) <- mutation_name
 
