@@ -1,3 +1,15 @@
+comb_along <- function(seq, m = 2, letters = c("A", "C", "T", "G")) {
+  seq <- as.list(strsplit(seq, "")[[1]])
+  indices <- utils::combn(seq_along(seq), m)
+  letters <- list(letters)
+  seq <- apply(indices, 2, function(x) {
+    seq[x] <- letters
+    do.call(paste0, expand.grid(seq))
+  })
+  unique(as.vector(seq))
+}
+
+
 get_cds <- function(txdb, ensemble_transcript_id) {
   cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
   cds <- cds[ensemble_transcript_id]
@@ -271,7 +283,8 @@ melting_temp <- function(x) TmCalculator::Tm_GC(
 
 gc_fract <- function(x) letterFrequency(x, letters = "CG", as.prob = TRUE)
 
-design_probes <- function(mutation_name, st, sp, s, tmin = 59, tmax = 61, len_min = 20, len_max = 25,
+design_probes <- function(mutation_name, st, sp, s, tmin = 59,
+                          tmax = 61, len_min = 20, len_max = 25,
                           origin_mut_start = 400 + 1) {
   probes <- GRanges()
   for (len in len_min:len_max) { # for each length
@@ -291,6 +304,30 @@ design_probes <- function(mutation_name, st, sp, s, tmin = 59, tmax = 61, len_mi
     }
   }
   return(probes)
+}
+
+select_probes <- function(muts_to_cover, candidates, temp_name) {
+  these_probes <- GRanges()
+  for (k in 1:length(muts_to_cover)) {
+    o <- findOverlaps(candidates, muts_to_cover)
+    if (length(S4Vectors::queryHits(o)) == 0) {
+      warning("Could not design probes for all of the mutations for ",
+              temp_name, " and mutations ", toString(muts_to_cover))
+      break
+    }
+    o_count <- table(S4Vectors::queryHits(o))
+    o_count_ <- rep(0, length(candidates))
+    o_count_[as.numeric(names(o_count))] <- o_count
+    best_probe <- order(o_count_, candidates$GC, decreasing = T)[1]
+    these_probes <- c(these_probes, candidates[best_probe])
+    candidates <- candidates[-best_probe]
+    muts_to_cover <- muts_to_cover[- S4Vectors::subjectHits(o)[
+      S4Vectors::queryHits(o) == best_probe]]
+    if (isEmpty(muts_to_cover)) {
+      break
+    }
+  }
+  these_probes
 }
 
 get_guides_and_scores <- function(origin_mutation, mutation_name, guide_distance, genomic_seq,

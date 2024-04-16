@@ -1,7 +1,7 @@
 Package: HDR.design.for.CRISPR
 Type: Package
 Title: HDR design for CRISPR
-Version: 0.0.15
+Version: 0.0.17
 Authors@R: 
     person("Kornel", "Labun", , "email@kornellabun.com", role = c("aut", "cre"))
 Description: Design CRISPR and probes for CRISPR HDR repair of the alleles.
@@ -32,11 +32,8 @@ Suggests:
     testthat (>= 3.0.0)
 Collate: 
     'utils.R'
-    'old_HDR_design_by_template.R'
     'HDRdesignForCRISPR.R'
-    'old_mutate_template.R'
     'cdna_diversification.R'
-    'one_template_one_guide.R'
-    'same_template_all_guides.R'
+    'design_template.R'
 VignetteBuilder: knitr
 Config/testthat/edition: 3
