@@ -201,13 +201,21 @@ get_all_combinations_of_mutations_for_guide <- function(
   })
 }
 
-# this is more global version of above
-# we want to find the SNPs that disable as many of the guides as we can
-# we design for single template for all guides
+#' @title All combinations of mutations
+#' @description this is more global version of above
+#' we want to find the SNPs that disable as many of the guides as we can
+#' we design for single template for all guides
+#' @param mutations all possible mutations
+#' @param mutations_per_template How many to select?
+#' @param pam PAM of the guide
+#' @param guide guide
+#' @return A list of muts grouped
+#' @importFrom utils combn
+#'
 get_combinations_of_mutations_for_guides <- function(
-    mutations, mutations_per_template, pams, guides) {
-  mutations$pam_disrupted <- countOverlaps(ranges(mutations), ranges(pams))
-  mutations$guide_disrupted <- countOverlaps(ranges(mutations), ranges(guides))
+    mutations, mutations_per_template, pam, guide) {
+  mutations$pam_disrupted <- countOverlaps(ranges(mutations), ranges(pam))
+  mutations$guide_disrupted <- countOverlaps(ranges(mutations), ranges(guide))
   mutations$overlaps_something <- mutations$noncoding != "" | mutations$nonsyn_tx_count > 0
   if (!is.null(mutations$compatible)) {
     mutations$compatibility_map <- rep(3, length(mutations))
@@ -234,8 +242,8 @@ get_combinations_of_mutations_for_guides <- function(
   mutations <- mutations[!duplicated(mutations$codon)] # only one change per codon
   mutations <- mutations[1:mutations_per_template] # might be NULL
 
-  list(mutations, sum(ranges(pams) %over% ranges(mutations)),
-       sum(ranges(guides) %over% ranges(mutations)),
+  list(mutations, sum(ranges(pam) %over% ranges(mutations)),
+       sum(ranges(guide) %over% ranges(mutations)),
        any(mutations$overlaps_something), sum(mutations$compatibility_map))
 }
 

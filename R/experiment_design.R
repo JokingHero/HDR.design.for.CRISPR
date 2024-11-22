@@ -1,36 +1,36 @@
-rm(list = ls(all.names = TRUE))
-gc(reset = T)
-
-library(Biostrings)
-library(GenomicFeatures)
-library(GenomicRanges)
-library(IRanges)
-library(BSgenome.Hsapiens.UCSC.hg38)
-library(crisprScore)
-library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
-library(VariantAnnotation)
-
-ensemble_transcript_id = "ENST00000399837.8"
-mutation_loci = 506
-mutation_original = "G"
-mutation_replacement = "A"
-mutation_name = "R169Q"
-output_dir = "~/"
-annotation = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/gencode.v42.annotation.gff3.gz"
-genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
-guide_distance = 10 + 17
-extension = 400
-positions_to_mutate = -19:19
-mutations_per_template = 0:3
-seed = 42
-score_efficiency = FALSE
-snps = SNPlocs.Hsapiens.dbSNP155.GRCh38
-clinvar = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/clinvar.vcf.gz"
-intron_bp = 6
-exon_bp = 3
-probes = TRUE
-primer3 = "/home/ai/Soft/primer3/src/primer3_core" # or default ""
-source("./R/utils.R")
+# rm(list = ls(all.names = TRUE))
+# gc(reset = T)
+#
+# library(Biostrings)
+# library(GenomicFeatures)
+# library(GenomicRanges)
+# library(IRanges)
+# library(BSgenome.Hsapiens.UCSC.hg38)
+# library(crisprScore)
+# library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
+# library(VariantAnnotation)
+#
+# ensemble_transcript_id = "ENST00000399837.8"
+# mutation_loci = 506
+# mutation_original = "G"
+# mutation_replacement = "A"
+# mutation_name = "R169Q"
+# output_dir = "~/"
+# annotation = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/gencode.v42.annotation.gff3.gz"
+# genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+# guide_distance = 10 + 17
+# extension = 400
+# positions_to_mutate = -19:19
+# mutations_per_template = 0:3
+# seed = 42
+# score_efficiency = FALSE
+# snps = SNPlocs.Hsapiens.dbSNP155.GRCh38
+# clinvar = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/clinvar.vcf.gz"
+# intron_bp = 6
+# exon_bp = 3
+# probes = TRUE
+# primer3 = "/home/ai/Soft/primer3/src/primer3_core" # or default ""
+# source("./R/utils.R")
 
 # ensemble_transcript_id = "ENST00000349496.11"
 # mutation_loci = 110
@@ -90,7 +90,7 @@ source("./R/utils.R")
 #' @param primer3 If you install primer3 we can design primers, if you also input full path to primer3_core here.
 #' @return writes files to the specified directory, might overwrite
 #' @import Biostrings GenomicFeatures GenomicRanges SummarizedExperiment IRanges BSgenome BSgenome.Hsapiens.UCSC.hg38 VariantAnnotation GenomeInfoDb
-#' @importFrom utils write.table
+#' @importFrom utils write.table combn
 #' @export
 #'
 design_all_templates <- function(
@@ -106,7 +106,6 @@ design_all_templates <- function(
     extension = 400,
     positions_to_mutate = -19:19,
     mutations_per_template = 0:3,
-    one_change_per_codon = FALSE,
     seed = 42,
     intron_bp = 6,
     exon_bp = 3,
