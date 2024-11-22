@@ -164,6 +164,43 @@ get_combinations_of_mutations_for_guide <- function(
        any(mutations$overlaps_something), sum(mutations$compatibility_map))
 }
 
+
+# mutations can't also be using the same codon more than 1 time
+# mutations can't repeat
+# we prefer clean mutations (no overlap from annot)
+# we prefer mutations that mutate the pam > guide > the rest
+# for SNPs we go with 123 as above and for annotations
+get_all_combinations_of_mutations_for_guide <- function(
+    mutations, mpt, pam, guide) {
+  mutations$pam_disrupted <- ranges(mutations) %over% ranges(pam)
+  mutations$guide_disrupted <- ranges(mutations) %over% ranges(guide)
+  mutations$distance_to_guide <- distance(ranges(mutations), ranges(pam))
+  mutations$overlaps_something <- mutations$noncoding != "" | mutations$nonsyn_tx_count > 0
+  if (!is.null(mutations$compatible)) {
+    mutations$compatibility_map <- rep(3, length(mutations))
+    mutations$compatibility_map[is.na(mutations$compatible)] <- 2
+    mutations$compatibility_map[which(mutations$compatible)] <- 1
+  } else {
+    mutations$compatibility_map <- rep(2, length(mutations)) # all unknown
+  }
+  # FALSES go in front of TRUES
+  ordering <- order(mutations$overlaps_something,
+                    !mutations$pam_disrupted,
+                    !mutations$guide_disrupted,
+                    mutations$compatibility_map,
+                    mutations$distance_to_guide,
+                    decreasing = FALSE)
+  mutations <- mutations[ordering]
+  mutations <- mutations[!duplicated(mutations$codon)] # one change per codon
+  # now select all possible combinations of N mutations based on the above
+  combs <- combn(seq_along(mutations), mpt)
+  lapply(combs, function(x) {
+    mutations <- mutations[x[[1]]]
+    list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted),
+         any(mutations$overlaps_something), sum(mutations$compatibility_map))
+  })
+}
+
 # this is more global version of above
 # we want to find the SNPs that disable as many of the guides as we can
 # we design for single template for all guides
