@@ -193,9 +193,9 @@ get_all_combinations_of_mutations_for_guide <- function(
   mutations <- mutations[ordering]
   mutations <- mutations[!duplicated(mutations$codon)] # one change per codon
   # now select all possible combinations of N mutations based on the above
-  combs <- combn(seq_along(mutations), mpt)
+  combs <- combn(seq_along(mutations), mpt, simplify = FALSE)
   lapply(combs, function(x) {
-    mutations <- mutations[x[[1]]]
+    mutations <- mutations[x]
     list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted),
          any(mutations$overlaps_something), sum(mutations$compatibility_map))
   })
@@ -228,7 +228,7 @@ get_combinations_of_mutations_for_guides <- function(
     seq_along(mutations),
     function(x) {
       y <- mutations[x]
-      min(distance(ranges(pams), ranges(y)))
+      min(distance(ranges(pam), ranges(y)))
   })
 
   # FALSES go in front of TRUES

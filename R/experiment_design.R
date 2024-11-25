@@ -18,6 +18,7 @@
 # output_dir = "~/"
 # annotation = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/gencode.v42.annotation.gff3.gz"
 # genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
+# filter_to_guide = "TGCTGGAGGATTATCAGAAG"
 # guide_distance = 10 + 17
 # extension = 400
 # positions_to_mutate = -19:19
@@ -28,7 +29,7 @@
 # clinvar = "/mnt/corsair/Projects/uib/CRIPSR/Oslo/clinvar.vcf.gz"
 # intron_bp = 6
 # exon_bp = 3
-# probes = TRUE
+# probes = FALSE
 # primer3 = "/home/ai/Soft/primer3/src/primer3_core" # or default ""
 # source("./R/utils.R")
 
@@ -73,6 +74,7 @@
 #' @param output_dir Where the files should be generated? Make sure you have writing permissions there.
 #' @param annotation File path to the annotation file, a gff3.
 #' @param genome BSgenome of your genome, compatible with annotation file, by default it is hg38.
+#' @param filter_to_guide If "" then all gudies will be run, if you enter 20bp of your guide we will filter to only that guide.
 #' @param guide_distance Window around which we should search for guides, relatively to the mutation loci. Defualt is 10 + 17bp.
 #' @param extension How many bases upstream/downstream from the mutation loci should we include. Default is 400.
 #' @param positions_to_mutate Which positions from the mutation are available for mutation. By default its -30:30
@@ -102,6 +104,7 @@ design_all_templates <- function(
     output_dir,
     annotation,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
+    filter_to_guide = "",
     guide_distance = 10 + 17,
     extension = 400,
     positions_to_mutate = -19:19,
@@ -194,6 +197,14 @@ design_all_templates <- function(
   # find and score guides in a window
   guides <- get_guides_and_scores(origin_mutation, mutation_name, guide_distance,
                                   genomic_seq, scores = score_efficiency)
+  if (filter_to_guide != "") {
+    found_guide <- guides$original == toupper(filter_to_guide)
+    if (!any(found_guide)) {
+      print(as.data.frame(guides))
+      stop("Can't find this guide, see above for the guides we found.")
+    }
+    guides <- guides[found_guide]
+  }
   pams <- resize(flank(guides, width = 3, start = FALSE), width = 2, fix = "end") # GG part
   probes_ <- GRanges()
 

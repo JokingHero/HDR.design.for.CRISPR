@@ -13,6 +13,7 @@ design_all_templates(
   output_dir,
   annotation,
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
+  filter_to_guide = "",
   guide_distance = 10 + 17,
   extension = 400,
   positions_to_mutate = -19:19,
@@ -43,6 +44,8 @@ design_all_templates(
 \item{annotation}{File path to the annotation file, a gff3.}
 
 \item{genome}{BSgenome of your genome, compatible with annotation file, by default it is hg38.}
+
+\item{filter_to_guide}{If "" then all gudies will be run, if you enter 20bp of your guide we will filter to only that guide.}
 
 \item{guide_distance}{Window around which we should search for guides, relatively to the mutation loci. Defualt is 10 + 17bp.}
 
