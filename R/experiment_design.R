@@ -82,7 +82,9 @@
 #' occupied by the mutation is not included in the change.
 #' @param mutations_per_template How many codons should be mutated per template. Insert a vector of
 #' e.g. 0:5 which will then be used to generate all possible templates according to all allowed mutations per template combinations.
-#' @param intron_bp How many bp of the intronic part of splicing should be excluded from synonymous SNPs (default 20, because of cryptic splice site potential)?
+#' @param template_upstream How many bp upstream of mutation position you want to include in the repair template default: 59
+#' @param template_downstream How many bp downstream of mutation position you want to include in the repair template default: 61
+# '@param intron_bp How many bp of the intronic part of splicing should be excluded from synonymous SNPs (default 20, because of cryptic splice site potential)?
 #' @param exon_bp How many bp of the exonic part of splicing should be excluded from synonymous SNPs (default 0)?
 #' @param snps Can be either NULL or an object like SNPlocs.Hsapiens.dbSNP155.GRCh38 from library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
 #' @param clinvar This is a clinVar database VCF file location. You can download it here https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz and https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz.tbi
@@ -109,6 +111,8 @@ design_all_templates <- function(
     extension = 400,
     positions_to_mutate = -19:19,
     mutations_per_template = 0:3,
+    template_upstream = 59,
+    template_downstream = 61,
     seed = 42,
     intron_bp = 6,
     exon_bp = 3,
@@ -211,7 +215,9 @@ design_all_templates <- function(
   # now the repair template sequences
   repair_template <- GRanges()
   # prepare mutations ranges
-  template_range <- promoters(ranges(origin_mutation), upstream = 49, downstream = 51)
+  template_range <- promoters(ranges(origin_mutation),
+                              upstream = template_upstream,
+                              downstream = template_downstream)
 
   for (i in seq_along(guides)) { # each guide gets his own optimized mutations
     message("Working on guide: ", i)
