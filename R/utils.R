@@ -81,7 +81,7 @@ get_all_possilbe_mutations <- function(
     # instead of picking randomly we will use all available alternate codons here
     replacement <- sapply(names(alternate), function(x) strsplit(x, "")[[1]][codon_position])
     mut <- GRanges(seqnames = mutation_name,
-                   ranges = IRanges(extension + i, width = 1),
+                   ranges = IRanges(extension + i + 1, width = 1), # HERE?!
                    strand = "+",
                    original = as.character(original_codon_seq[codon_position]),
                    replacement = "",
@@ -170,6 +170,7 @@ get_combinations_of_mutations_for_guide <- function(
 # we prefer clean mutations (no overlap from annot)
 # we prefer mutations that mutate the pam > guide > the rest
 # for SNPs we go with 123 as above and for annotations
+# we filter only to mutations overlapping guide
 get_all_combinations_of_mutations_for_guide <- function(
     mutations, mpt, pam, guide) {
   mutations$pam_disrupted <- ranges(mutations) %over% ranges(pam)
@@ -192,6 +193,7 @@ get_all_combinations_of_mutations_for_guide <- function(
                     decreasing = FALSE)
   mutations <- mutations[ordering]
   mutations <- mutations[!duplicated(mutations$codon)] # one change per codon
+  mutations <- mutations[mutations$guide_disrupted | mutations$pam_disrupted, ]
   # now select all possible combinations of N mutations based on the above
   combs <- combn(seq_along(mutations), mpt, simplify = FALSE)
   lapply(combs, function(x) {

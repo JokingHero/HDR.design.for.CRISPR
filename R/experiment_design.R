@@ -23,6 +23,8 @@
 # extension = 400
 # positions_to_mutate = -19:19
 # mutations_per_template = 0:3
+# template_upstream = 59
+# template_downstream = 61
 # seed = 42
 # score_efficiency = FALSE
 # snps = SNPlocs.Hsapiens.dbSNP155.GRCh38
@@ -32,12 +34,13 @@
 # probes = FALSE
 # primer3 = "/home/ai/Soft/primer3/src/primer3_core" # or default ""
 # source("./R/utils.R")
-
+#
 # ensemble_transcript_id = "ENST00000349496.11"
 # mutation_loci = 110
 # mutation_original = "C"
 # mutation_replacement = "T"
 # mutation_name = "C25118T"
+# filter_to_guide = ""
 #
 # ensemble_transcript_id <- "ENST00000374202.7"
 # mutation_loci <- 172
@@ -152,6 +155,9 @@ design_all_templates <- function(
   # ranges here are relative to the extend
   mutations <- get_all_possilbe_mutations(
     mutation_name, positions_to_mutate, mutation_loci, cds_seq, aa_cds_seq, extension)
+  if (any(genomic_seq[[1]][ranges(mutations)] == DNAStringSet(mutations$original))) {
+    stop("Something is not correct with generated synonymous-SNPs. Contact Kornel.")
+  }
 
   # overlap mutations with anything on GFF
   # transform mutations to Genomic coordinates

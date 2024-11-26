@@ -18,6 +18,8 @@ design_all_templates(
   extension = 400,
   positions_to_mutate = -19:19,
   mutations_per_template = 0:3,
+  template_upstream = 59,
+  template_downstream = 61,
   seed = 42,
   intron_bp = 6,
   exon_bp = 3,
@@ -58,9 +60,11 @@ occupied by the mutation is not included in the change.}
 \item{mutations_per_template}{How many codons should be mutated per template. Insert a vector of
 e.g. 0:5 which will then be used to generate all possible templates according to all allowed mutations per template combinations.}
 
-\item{seed}{Ensures reproducibility of the random parts of the pipeline.}
+\item{template_upstream}{How many bp upstream of mutation position you want to include in the repair template default: 59}
 
-\item{intron_bp}{How many bp of the intronic part of splicing should be excluded from synonymous SNPs (default 20, because of cryptic splice site potential)?}
+\item{template_downstream}{How many bp downstream of mutation position you want to include in the repair template default: 61}
+
+\item{seed}{Ensures reproducibility of the random parts of the pipeline.}
 
 \item{exon_bp}{How many bp of the exonic part of splicing should be excluded from synonymous SNPs (default 0)?}
 

@@ -1,7 +1,7 @@
 Package: HDR.design.for.CRISPR
 Type: Package
 Title: HDR design for CRISPR
-Version: 0.0.19
+Version: 0.0.20
 Authors@R: 
     person("Kornel", "Labun", , "email@kornellabun.com", role = c("aut", "cre"))
 Description: Design CRISPR and probes for CRISPR HDR repair of the alleles.
