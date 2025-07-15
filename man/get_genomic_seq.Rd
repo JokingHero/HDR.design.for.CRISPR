@@ -20,7 +20,7 @@ get_genomic_seq(
 
 \item{bp}{How many bp of the seqeunce around the cut site you would like to extract?}
 
-\item{homology_arm_length}{How long should homology arms be?}
+\item{homology_arm_length}{How long should homology arms be? Right arm includes \code{position}.}
 
 \item{output_file}{To which file output the results? Writes fasta file. By default it does not save the file.}
 

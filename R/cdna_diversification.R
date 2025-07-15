@@ -5,7 +5,7 @@
 #' @param chromosome What is the chromosome of your target site?
 #' @param position Position on the chromosome
 #' @param bp How many bp of the seqeunce around the cut site you would like to extract?
-#' @param homology_arm_length How long should homology arms be?
+#' @param homology_arm_length How long should homology arms be? Right arm includes `position`.
 #' @param output_file To which file output the results? Writes fasta file. By default it does not save the file.
 #' @param genome Which genome to use? By default it uses BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38.
 #' @return returns the DNAStringSet of the extracted sequences
@@ -48,24 +48,6 @@ get_genomic_seq <- function(
   }
   return(seq)
 }
-
-
-
-
-# rm(list = ls(all.names = TRUE))
-# gc(reset = T)
-#
-# library(Biostrings)
-# library(GenomicFeatures)
-# library(GenomicRanges)
-# library(IRanges)
-# library(BSgenome.Hsapiens.UCSC.hg38)
-#
-# ensemble_transcript_id = "ENST00000399837.8"
-# output_file = "~/cds_mutated.fasta"
-# annotation = "gencode.v42.annotation.gff3"
-# genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38
-# seed = 42
 
 #' @title Design templates with innocent synonymous SNPs
 #'

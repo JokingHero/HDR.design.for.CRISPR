@@ -1,3 +1,238 @@
+# locus_name = mutation_name
+# gseq = genomic_seq[[1]]
+# organism_name = organism(genome)
+# output_file = file.path(output_dir, paste0(mutation_name, "_cds.gbk"))
+# definition = "."
+# accession = "."
+# version = "."
+# keywords = "."
+# authors = "snipsnp.com"
+# title = "Direct Submission"
+# export_source_app = "snipsnp.com"
+# comment_text = ""
+# mol_type = "genomic DNA"
+# division = "UNA"
+# codon_start = 1
+write_genbank_custom <- function(
+    locus_name,         # Character: e.g., "ADA2-203"
+    gseq,        # DNAString object
+    cds_on_tx,          # IRanges object: CDS exon coordinates relative to gseq
+    aa_cds_seq,         # AAString object: translated CDS sequence
+    organism_name,      # Character: e.g., "Homo sapiens"
+    output_file,        # Character: path for the output .gb file
+    definition = ".",
+    accession = ".",
+    version = ".",
+    keywords = ".",
+    authors = "snipsnp.com",
+    title = "Direct Submission",
+    export_source_app = "snipsnp.com", # Tool used for export
+    comment_text = "",  # Optional comment line
+    mol_type = "genomic DNA",
+    division = "UNA",   # GenBank division (e.g., PLN, PRI, HUM, UNA)
+    codon_start = 1
+) {
+  seq_len <- length(gseq)
+  date_str <- toupper(format(Sys.Date(), "%d-%b-%Y"))
+
+  # Open file for writing
+  file_conn <- file(output_file, "w")
+  on.exit(close(file_conn))
+
+  # --- LOCUS Line ---
+  # LOCUS       Name      Length bp    mol   topology division Date
+  # Example: LOCUS       ADA2-203               40646 bp    DNA     linear   UNA 26-MAY-2025
+  # Locus name part is typically padded. Max 16 chars for locus name itself is common.
+  locus_line <- sprintf("LOCUS       %-16s %7d bp    DNA     linear   %3s %s",
+                        substr(locus_name, 1, 16), # Ensure locus name is not too long for its slot
+                        seq_len,
+                        division,
+                        date_str)
+  writeLines(locus_line, file_conn)
+
+  # --- DEFINITION, ACCESSION, VERSION, KEYWORDS ---
+  writeLines(paste("DEFINITION ", definition), file_conn)
+  writeLines(paste("ACCESSION  ", accession), file_conn) # Note two spaces for ACCESSION
+  writeLines(paste("VERSION    ", version), file_conn)   # Note two spaces for VERSION
+  writeLines(paste("KEYWORDS   ", keywords), file_conn)  # Note two spaces for KEYWORDS
+
+  # --- SOURCE and ORGANISM ---
+  writeLines(paste("SOURCE     ", organism_name), file_conn) # Note one space for SOURCE
+  writeLines(paste("  ORGANISM ", organism_name), file_conn)
+
+  # --- REFERENCE ---
+  # This is a minimal reference block
+  writeLines(sprintf("REFERENCE   1  (bases 1 to %d)", seq_len), file_conn)
+  writeLines(paste("  AUTHORS  ", authors), file_conn)
+  writeLines(paste("  TITLE    ", title), file_conn)
+  journal_line <- sprintf("  JOURNAL   Exported %s from %s", date_str, export_source_app)
+  writeLines(journal_line, file_conn)
+
+  # --- COMMENT ---
+  if (nzchar(comment_text)) {
+    # Handle potential multi-line comments by writing each line prefixed with COMMENT
+    comment_lines <- strsplit(comment_text, "\n")[[1]]
+    for (cl in comment_lines) {
+      writeLines(paste("COMMENT    ", cl), file_conn) # Ensure adequate spacing for COMMENT
+    }
+  }
+
+  # --- FEATURES ---
+  writeLines("FEATURES             Location/Qualifiers", file_conn)
+
+  # Source feature
+  writeLines(sprintf("     source          1..%d", seq_len), file_conn)
+  writeLines(sprintf("                     /mol_type=\"%s\"", mol_type), file_conn)
+  writeLines(sprintf("                     /organism=\"%s\"", organism_name), file_conn)
+
+  # CDS feature
+  if (length(cds_on_tx) > 0) {
+    cds_loc_strings <- paste0(start(cds_on_tx), "..", end(cds_on_tx))
+
+    # Constructing the join string with wrapping similar to the example
+    # Max line width for feature content is around 79 columns.
+    # Initial part: "     CDS             join(" (length 26)
+    # Continuation indent: "                     " (length 21)
+
+    cds_location_lines <- c()
+    # Start with the first part of the join string
+    # Max content length on the first feature line (after "     CDS             ")
+    max_first_feature_line_content = 79 - nchar("     CDS             ")
+    # Max content length on continuation lines (after "                     ")
+    max_cont_feature_line_content = 79 - nchar("                     ")
+
+    current_cds_line_content <- paste0("join(", cds_loc_strings[1])
+
+    if (length(cds_loc_strings) > 1) {
+      for (j in 2:length(cds_loc_strings)) {
+        next_piece_to_add <- paste0(",", cds_loc_strings[j])
+        # If this is the first line being built for CDS location
+        current_max_len <- if(length(cds_location_lines) == 0) max_first_feature_line_content else max_cont_feature_line_content
+
+        if (nchar(current_cds_line_content) + nchar(next_piece_to_add) <= current_max_len) {
+          current_cds_line_content <- paste0(current_cds_line_content, next_piece_to_add)
+        } else {
+          # Line is full, add it to our collection (with a comma if it's not a natural end)
+          cds_location_lines <- c(cds_location_lines, paste0(current_cds_line_content, ",")) # Add comma for continuation
+          current_cds_line_content <- cds_loc_strings[j] # Start new line content with this piece
+        }
+      }
+    }
+    # Add the final part of current_cds_line_content and the closing parenthesis
+    cds_location_lines <- c(cds_location_lines, paste0(current_cds_line_content, ")"))
+
+    # Write the CDS location lines
+    writeLines(paste0("     CDS             ", cds_location_lines[1]), file_conn)
+    if (length(cds_location_lines) > 1) {
+      for (j in 2:length(cds_location_lines)) {
+        writeLines(paste0("                     ", cds_location_lines[j]), file_conn)
+      }
+    }
+
+    # CDS Qualifiers
+    writeLines(sprintf("                     /codon_start=%d", codon_start), file_conn)
+    writeLines(sprintf("                     /label=\"%s\"", locus_name), file_conn)
+
+    # Translation
+    if (length(aa_cds_seq) > 0) {
+      if (aa_cds_seq[length(aa_cds_seq)] == AAString("*")) aa_cds_seq <- aa_cds_seq[1:(length(aa_cds_seq)-1)]
+      char_aa_seq <- as.character(aa_cds_seq)
+      aa_seq_len <- nchar(char_aa_seq)
+
+      translation_output_lines <- c()
+
+      # Max AA chars on the first translation line: 79 - nchar("                     /translation=\"") - 1 (for end quote)
+      first_line_aa_max <- 79 - 21 - nchar("/translation=\"") - 1
+      # Max AA chars on continuation lines: 79 - nchar("                     ") -1 (for potential end quote)
+      cont_line_aa_max <- 79 - 21 -1
+
+      current_pos <- 1
+      # First line of translation
+      chunk_len <- min(aa_seq_len, first_line_aa_max)
+      line_content <- substring(char_aa_seq, current_pos, current_pos + chunk_len - 1)
+
+      if (aa_seq_len <= first_line_aa_max) { # Fits entirely on the first line
+        translation_output_lines <- c(translation_output_lines,
+                                      sprintf("                     /translation=\"%s\"", line_content))
+      } else {
+        translation_output_lines <- c(translation_output_lines,
+                                      sprintf("                     /translation=\"%s", line_content))
+      }
+      current_pos <- current_pos + chunk_len
+
+      # Subsequent lines
+      while(current_pos <= aa_seq_len) {
+        remaining_len <- aa_seq_len - current_pos + 1
+        chunk_len <- min(remaining_len, cont_line_aa_max)
+        line_content <- substring(char_aa_seq, current_pos, current_pos + chunk_len - 1)
+
+        # Indent subsequent lines
+        translation_output_lines <- c(translation_output_lines,
+                                      paste0("                     ", line_content))
+        current_pos <- current_pos + chunk_len
+      }
+
+      # Add closing quote to the very last line of translation
+      if (length(translation_output_lines) > 0) {
+        translation_output_lines[length(translation_output_lines)] <-
+          paste0(translation_output_lines[length(translation_output_lines)], "\"")
+      }
+
+      # Write all translation lines
+      for(t_line in translation_output_lines){
+        writeLines(t_line, file_conn)
+      }
+    } else { # No amino acid sequence
+      writeLines("                     /pseudo", file_conn) # Or /note="coding sequence but no translation provided"
+    }
+  }
+
+  # --- ORIGIN ---
+  writeLines("ORIGIN", file_conn)
+  char_genomic_seq <- tolower(as.character(gseq)) # GenBank sequence is often lowercase
+
+  # Sequence formatting: 60 bases per line, 6 blocks of 10, space separated
+  # Line numbers are right-justified (width 9)
+  for (i in seq(1, seq_len, by = 60)) {
+    line_num_str <- sprintf("%9d", i)
+    sub_seq_chunk <- substring(char_genomic_seq, i, min(i + 59, seq_len))
+
+    # Split into blocks of 10
+    blocks <- c()
+    for (j in seq(1, nchar(sub_seq_chunk), by = 10)) {
+      blocks <- c(blocks, substring(sub_seq_chunk, j, min(j + 9, nchar(sub_seq_chunk))))
+    }
+    seq_line_formatted <- paste(blocks, collapse = " ")
+    writeLines(paste0(line_num_str, " ", seq_line_formatted), file_conn)
+  }
+
+  # --- End of record ---
+  writeLines("//", file_conn)
+
+  return(invisible())
+}
+
+get_frame <- function(exon_widths) {
+  c(0, cumsum(exon_widths) %% 3)[1:length(exon_widths)]
+}
+
+#' Flip IRanges around a central mutation point.
+#'
+#' @param ranges An IRanges object containing the ranges to be flipped, ranges in `sense`
+#' @param extension An integer defining the "half-length" of the genomic_seq.
+#' The total length will be `2 * extension + 1`, and the mirror point will be `extension + 1`.
+#' @return A new IRanges object with the ranges flipped.
+#'
+mirror_flip <- function(ranges, extension) {
+  original_starts <- start(ranges)
+  original_ends <- end(ranges)
+  flipped_starts <- 2 * (extension + 1) - original_ends
+  flipped_ends   <- 2 * (extension + 1) - original_starts
+  flipped_iranges <- IRanges(start = flipped_starts, end = flipped_ends)
+  return(flipped_iranges)
+}
+
+
 comb_along <- function(seq, m = 2, letters = c("A", "C", "T", "G")) {
   seq <- as.list(strsplit(seq, "")[[1]])
   indices <- utils::combn(seq_along(seq), m)
@@ -8,7 +243,6 @@ comb_along <- function(seq, m = 2, letters = c("A", "C", "T", "G")) {
   })
   unique(as.vector(seq))
 }
-
 
 get_cds <- function(txdb, ensemble_transcript_id) {
   cds <- suppressWarnings(GenomicFeatures::cdsBy(txdb, by = "tx", use.names = T))
@@ -25,13 +259,10 @@ get_genomic_mutation <- function(cds, mutation_loci) {
 }
 
 get_all_possilbe_mutations <- function(
-    mutation_name,
     positions_to_mutate,
     mutation_loci,
-    cds_seq,
-    aa_cds_seq,
-    extension) {
-  # 3 extra mutations that are synonymous
+    cds_seq) {
+  aa_cds_seq <- Biostrings::translate(cds_seq)
   pp <- positions_to_mutate
   # remove positions of our main mutation codon
   this_pos_mutation_loci <- mutation_loci
@@ -54,7 +285,7 @@ get_all_possilbe_mutations <- function(
 
   # figure out all possible mutations that are synonymous
   sp <- c()
-  mutations <- GRanges()
+  mutations <- IRanges()
   for (i in pp) {
     this_pos_mutation_loci <- mutation_loci + i
     codon_count <- ceiling(this_pos_mutation_loci / 3)
@@ -80,16 +311,13 @@ get_all_possilbe_mutations <- function(
     if (length(alternate) == 0) next # original position is crucial to this codon
     # instead of picking randomly we will use all available alternate codons here
     replacement <- sapply(names(alternate), function(x) strsplit(x, "")[[1]][codon_position])
-    mut <- GRanges(seqnames = mutation_name,
-                   ranges = IRanges(extension + i + 1, width = 1), # HERE?!
-                   strand = "+",
+    names(replacement) <- NULL
+    mut <- IRanges(rep(this_pos_mutation_loci, length(replacement)),
+                   width = 1,
                    original = as.character(original_codon_seq[codon_position]),
-                   replacement = "",
+                   replacement = replacement,
                    shift = i,
-                   codon = codon_count,
-                   cds_pos = this_pos_mutation_loci)
-    mut <- rep(mut, length(replacement))
-    mut$replacement <- replacement
+                   codon = codon_count)
     mutations <- c(mutations, mut)
   }
   names(mutations) <- seq_along(mutations)
@@ -149,10 +377,14 @@ get_combinations_of_mutations_for_guide <- function(
   } else {
     mutations$compatibility_map <- rep(2, length(mutations)) # all unknown
   }
+  if (is.null(mutations$cadd)) {
+    mutations$cadd <- 0
+  }
   # FALSES go in front of TRUES
   ordering <- order(mutations$overlaps_something,
                     !mutations$pam_disrupted,
                     !mutations$guide_disrupted,
+                    mutations$cadd,
                     mutations$compatibility_map,
                     mutations$distance_to_guide,
                     decreasing = FALSE)
@@ -160,7 +392,7 @@ get_combinations_of_mutations_for_guide <- function(
   mutations <- mutations[!duplicated(mutations$codon)] # only one change per codon
   mutations <- mutations[1:mutations_per_template] # might be NULL
 
-  list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted),
+  list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted), sum(mutations$cadd),
        any(mutations$overlaps_something), sum(mutations$compatibility_map))
 }
 
@@ -184,22 +416,28 @@ get_all_combinations_of_mutations_for_guide <- function(
   } else {
     mutations$compatibility_map <- rep(2, length(mutations)) # all unknown
   }
+  if (is.null(mutations$cadd)) {
+    mutations$cadd <- 0
+  }
   # FALSES go in front of TRUES
   ordering <- order(mutations$overlaps_something,
                     !mutations$pam_disrupted,
                     !mutations$guide_disrupted,
+                    mutations$cadd,
                     mutations$compatibility_map,
                     mutations$distance_to_guide,
                     decreasing = FALSE)
   mutations <- mutations[ordering]
-  mutations <- mutations[!duplicated(mutations$codon)] # one change per codon
   mutations <- mutations[mutations$guide_disrupted | mutations$pam_disrupted, ]
   # now select all possible combinations of N mutations based on the above
   combs <- combn(seq_along(mutations), mpt, simplify = FALSE)
+  combs <- combs[sapply(combs, function(x) { # we filter out these combinations that reuse a codon
+    length(unique(mutations[x]$codon)) == length(x)
+  })]
   lapply(combs, function(x) {
-    mutations <- mutations[x]
-    list(mutations, sum(mutations$pam_disrupted), sum(mutations$guide_disrupted),
-         any(mutations$overlaps_something), sum(mutations$compatibility_map))
+    smut <- mutations[x]
+    list(smut, sum(smut$pam_disrupted), sum(smut$guide_disrupted), sum(smut$cadd),
+         any(smut$overlaps_something), sum(smut$compatibility_map))
   })
 }
 
@@ -289,7 +527,7 @@ annotate_mutations_with_tx <- function(genome, mutations, mutations_genomic, txd
   for (i in seq_along(mutations)) {
     to_check <- all_tx_cds[all_tx_cds %over% mutations_genomic[i]]
     i_cds_seq <- GenomicFeatures::extractTranscriptSeqs(genome, to_check)
-    i_aa_cds_seq <- Biostrings::translate(i_cds_seq)
+    i_aa_cds_seq <- suppressWarnings(Biostrings::translate(i_cds_seq))
     i_loc <- GenomicFeatures::mapToTranscripts(mutations_genomic[i], to_check)
     nonsyn <- c()
     for (j in seq_along(to_check)) {
@@ -298,7 +536,7 @@ annotate_mutations_with_tx <- function(genome, mutations, mutations_genomic, txd
         stop("Nonysynomous SNPs reference mismatch.")
       }
       ji_cds_seq[start(i_loc[j])] <- DNAString(mutations[i]$replacement)
-      if (i_aa_cds_seq[[j]] != Biostrings::translate(ji_cds_seq)) {
+      if (i_aa_cds_seq[[j]] != suppressWarnings(Biostrings::translate(ji_cds_seq))) {
         nonsyn <- c(nonsyn, names(to_check)[j])
       }
     }
@@ -321,6 +559,12 @@ annotate_mutations_with_noncoding <- function(mutations, mutations_genomic, anno
                collapse = "; ")
     }
   }
+  mutations
+}
+
+annotate_mutations_with_cadd <- function(mutations, mutations_genomic, cadd) {
+  mutations$cadd <- GenomicScores::gscores(
+    cadd, mutations_genomic, ref = mutations$original, alt = mutations$replacement)$default
   mutations
 }
 
@@ -353,7 +597,7 @@ design_probes <- function(mutation_name, st, sp, s, tmin = 59,
   return(probes)
 }
 
-select_probes <- function(muts_to_cover, candidates, temp_name) {
+select_probes <- function(muts_to_cover, candidates) {
   these_probes <- GRanges()
   for (k in 1:length(muts_to_cover)) {
     o <- findOverlaps(candidates, muts_to_cover)

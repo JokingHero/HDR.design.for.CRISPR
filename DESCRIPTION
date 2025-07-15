@@ -1,7 +1,7 @@
 Package: HDR.design.for.CRISPR
 Type: Package
 Title: HDR design for CRISPR
-Version: 0.0.20
+Version: 0.0.30
 Authors@R: 
     person("Kornel", "Labun", , "email@kornellabun.com", role = c("aut", "cre"))
 Description: Design CRISPR and probes for CRISPR HDR repair of the alleles.
@@ -20,22 +20,24 @@ Imports:
     SummarizedExperiment,
     GenomicFeatures, 
     GenomicRanges,
-    BSgenome.Hsapiens.UCSC.hg38,
     VariantAnnotation,
     rtracklayer,
     TmCalculator,
     stringr,
-    crisprScore
+    crisprScore,
+    GenomicScores,
 Suggests: 
     knitr,
     rmarkdown,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    BSgenome.Hsapiens.UCSC.hg38,
+    SNPlocs.Hsapiens.dbSNP155.GRCh38,
+    cadd.v1.6.hg38,
 Collate: 
     'utils.R'
-    'HDRdesignForCRISPR.R'
     'cdna_diversification.R'
-    'design_template.R'
-    'experiment_design.R'
-    'efficiency_prediction_for_guides.R'
+    'design_helpers.R'
+    'design_hdr.R'
+    'HDRdesignForCRISPR.R'
 VignetteBuilder: knitr
 Config/testthat/edition: 3
