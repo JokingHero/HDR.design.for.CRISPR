@@ -5,19 +5,21 @@
 \title{Design HDR Repair Templates for CRISPR}
 \usage{
 design_hdr(
-  ensemble_transcript_id,
-  mutation_loci,
-  mutation_original,
-  mutation_replacement,
-  mutation_name,
+  design_name,
+  chrom,
+  variant_start,
+  variant_end,
+  REF,
+  ALT,
   output_dir,
   annotation,
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-  strategy = c("optimal_per_guide", "optimal_for_all", "all_per_guide"),
+  strategy,
   maximum_mutations_per_template = 3,
   filter_to_guide = "",
   guide_distance = 10 + 17,
-  positions_to_mutate = -19:19,
+  allowed_positions_upstream = 1:10,
+  allowed_positions_downstream = 1:10,
   template_upstream = 59,
   template_downstream = 61,
   seed = 42,
@@ -28,23 +30,27 @@ design_hdr(
   cadd = NULL,
   score_efficiency = FALSE,
   do_probes = TRUE,
-  primer3 = ""
+  primer3 = "",
+  alphagenome_key = "",
+  python_exec = "python3"
 )
 }
 \arguments{
-\item{ensemble_transcript_id}{This has to be an Ensembl transcript ID, e.g., "ENST00000307851.9".}
+\item{design_name}{A short name for this mutation, e.g., "tyr82cys".0,}
 
-\item{mutation_loci}{Position on the CDS that is mutated, e.g., 245.}
+\item{chrom}{Chromosome of the variant to correct. e.g. chr1}
 
-\item{mutation_original}{The original base on the genome, e.g., "A".}
+\item{variant_start}{Position on the chromosome for the variant (its on + strand)}
 
-\item{mutation_replacement}{The desired mutated base, e.g., "G".}
+\item{variant_end}{Position end of the variant on the chromosome}
 
-\item{mutation_name}{A short name for this mutation, e.g., "tyr82cys".}
+\item{REF}{The original base on the genome, e.g., "A".}
+
+\item{ALT}{The desired mutated base, e.g., "G".}
 
 \item{output_dir}{Path to the directory where output files will be saved.}
 
-\item{annotation}{File path to the genome annotation file (GFF3 format).}
+\item{annotation}{File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with \code{AnnotationDbi::loadDb}.}
 
 \item{genome}{A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.}
 
@@ -61,7 +67,9 @@ design_hdr(
 
 \item{guide_distance}{Window around the mutation to search for guides (default: 27).}
 
-\item{positions_to_mutate}{A vector of positions relative to the mutation to consider for introducing synonymous SNPs (default: -19:19).}
+\item{allowed_positions_upstream}{A vector of positions upstream to the variant to consider for introducing synonymous SNPs (default: 1:10).}
+
+\item{allowed_positions_downstream}{A vector of positions downstream to the variant to consider for introducing synonymous SNPs (default: 1:10).}
 
 \item{template_upstream}{How many bp upstream of the mutation to include in the repair template (default: 59).}
 
@@ -84,6 +92,10 @@ design_hdr(
 \item{do_probes}{Logical. If \code{TRUE}, design qPCR probes for HDR, NHEJ, and Reference.}
 
 \item{primer3}{Optional. Full path to the \code{primer3_core} executable to design PCR primers.}
+
+\item{alphagenome_key}{Your key to the alphagenome service.}
+
+\item{python_exec}{path to the python3 that has alphagenome installed.}
 }
 \value{
 This function does not return a value. It writes all output files to the specified \code{output_dir}.

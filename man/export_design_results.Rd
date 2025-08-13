@@ -6,16 +6,14 @@
 \usage{
 export_design_results(
   output_dir,
-  mutation_name,
-  genomic_seq,
-  origin_mutation,
-  mutations,
+  design_name,
+  variant_genomic,
+  var_data,
   guides,
   repair_template,
   genome,
-  cds_on_tx,
-  aa_cds_seq,
-  primers = NULL,
+  txdb,
+  primers = GRanges(),
   probes_ = GRanges(),
   score_efficiency = FALSE,
   one_for_all = FALSE

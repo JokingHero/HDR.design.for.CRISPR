@@ -36,16 +36,6 @@ test_that("comb_along", {
     sort(comb_along("NN", m = 3, letters = c("A"))))
 })
 
-test_that("get_all_possilbe_mutations", {
-  cds <- DNAString(c("ATGGCATTATAG"))
-                    # 111222333444
-                    # ---4---
-                    # 1234567
-  expect_equal(
-    get_all_possilbe_mutations(-4:4, 4, cds),
-    IRanges(names = 1, start = 7, width = 1, original = "T", replacement = "C", shift = 3, codon = 3))
-})
-
 test_that("get_genomic_mutation", {
   cds_test <- GRangesList(list("plus" = GRanges(seqnames = "chr",
                                                 ranges = IRanges(100, 200),

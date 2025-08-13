@@ -5,16 +5,18 @@
 \title{Primer 3}
 \usage{
 design_primers(
-  guide_distance,
-  positions_to_mutate,
-  genomic_seq,
-  origin_mutation,
-  mut_genomic,
+  template_range_extended,
+  template_range,
+  variant_with_allowed,
   genome,
   primer3_path
 )
 }
 \description{
 Design primers with the use of primer 3
+We want at least one primer to be outside of the template_range
+We use \code{template_range_extended} as the region where we can design
+We check for off-targets
+We want to make sure the target_on_template_extended is captured inside the PCRed sequence
 }
 \keyword{internal}

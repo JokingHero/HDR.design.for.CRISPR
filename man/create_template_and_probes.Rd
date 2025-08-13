@@ -8,10 +8,9 @@ It will be used inside the switch statement to reduce code duplication.}
 create_template_and_probes(
   muts,
   guide_name,
-  origin_mutation,
   template_range,
-  genomic_seq,
-  mutation_name,
+  template_ref,
+  design_name,
   do_probes,
   probe_params
 )
