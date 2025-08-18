@@ -1,26 +1,45 @@
+#' Selects mutations that are non-overlapping at both the genomic and codon level.
+#'
+#' @param gr A GRanges object of candidate mutations, assumed to be pre-sorted by priority.
+#' @param N The maximum number of mutations to select.
+#' @return A GRanges object containing the top N non-overlapping mutations.
 #' @keywords internal
 #'
-select_non_overlapping_codons <- function(gr, N) {
-  selected_indices <- c()
+select_non_overlapping_mutations <- function(gr, N) {
+  if (length(gr) == 0) {
+    return(gr[0])
+  }
+
+  selected_gr <- gr[0]
   seen_codon_keys <- c()
   for (i in seq_along(gr)) {
-    if (length(selected_indices) >= N) {
+    if (length(selected_gr) >= N) {
       break
     }
-    current_cds_df <- gr$CDS[[i]]
-    if (nrow(current_cds_df) == 0) {
-      selected_indices <- c(selected_indices, i)
+
+    candidate_mut <- gr[i]
+    if (length(findOverlaps(candidate_mut, selected_gr)) > 0) {
       next
     }
 
-    current_keys <- paste(current_cds_df$tx_id, current_cds_df$codon_num, sep = "_")
-    has_conflict <- any(current_keys %in% seen_codon_keys)
-    if (!has_conflict) {
-      selected_indices <- c(selected_indices, i)
+    current_cds_df <- candidate_mut$CDS[[1]]
+    current_keys <- c()
+    has_codon_data <- !is.null(current_cds_df) && nrow(current_cds_df) > 0
+
+    if (has_codon_data) {
+      current_keys <- paste(current_cds_df$tx_id, current_cds_df$codon_num, sep = "_")
+      if (any(current_keys %in% seen_codon_keys)) {
+        next
+      }
+    }
+
+    selected_gr <- c(selected_gr, candidate_mut)
+    if (has_codon_data) {
       seen_codon_keys <- union(seen_codon_keys, current_keys)
     }
   }
-  return(gr[selected_indices])
+
+  return(selected_gr)
 }
 
 #' Calculate compatibility map based on dbSNP information
@@ -166,7 +185,7 @@ find_mutation_combinations <- function(
     result_list <- lapply(combs_indices, function(indices) {
       candidate_muts <- mutations[indices]
       # A combination is valid only if it has no overlapping codons
-      selected <- select_non_overlapping_codons(candidate_muts, maximum_mutations_per_template)
+      selected <- select_non_overlapping_mutations(candidate_muts, maximum_mutations_per_template)
       if (length(selected) == length(candidate_muts)) {
         format_output_muts(selected, guides, pams, strategy)
       } else {
@@ -177,7 +196,8 @@ find_mutation_combinations <- function(
 
   } else { # Handles "best_single" and "best_global"
     # Greedily select the top N non-overlapping mutations
-    selected_muts <- select_non_overlapping_codons(mutations, maximum_mutations_per_template)
+    selected_muts <- select_non_overlapping_mutations(mutations, maximum_mutations_per_template)
+
     if (strategy == "best_global") {
       # The global strategy also truncates to the exact number requested
       if(length(selected_muts) > maximum_mutations_per_template){

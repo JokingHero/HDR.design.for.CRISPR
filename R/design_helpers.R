@@ -246,8 +246,9 @@ export_design_results <- function(
     cds_relative <- pmapToTranscripts(cds, chrom_relative)
     cds$start_relative <- start(cds_relative)
     cds$end_relative <- end(cds_relative)
+    cds$row_names <- names(cds)
+    names(cds) <- NULL
     cds_dt <- as.data.frame(cds)
-    cds_dt$row_names <- names(cds)
     write.table(cds_dt, file = file.path(
       output_dir, paste0(design_name, "_cds_1based.csv")),
       quote = F, sep = ",", row.names = F, col.names = T)
