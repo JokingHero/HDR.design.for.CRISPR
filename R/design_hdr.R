@@ -185,7 +185,7 @@ design_hdr <- function(
 
              result <- create_template_and_probes(
                muts, names(guides)[i],
-               template_range, template_ref,
+               template_range, if (ALT_on_templates) template_alt else template_ref,
                design_name, do_probes, probe_params)
              repair_template <- c(repair_template, result$template)
              probes_ <- c(probes_, result$probes)
@@ -198,7 +198,7 @@ design_hdr <- function(
            if (!is.null(muts)) {
              result <- create_template_and_probes(
                muts, "All_Guides",
-               template_range, template_ref,
+               template_range, if (ALT_on_templates) template_alt else template_ref,
                design_name, do_probes, probe_params)
              repair_template <- c(repair_template, result$template)
              probes_ <- c(probes_, result$probes)
@@ -225,7 +225,7 @@ design_hdr <- function(
                  # on template_ref, but we will find probe over this variant
                  result <- create_template_and_probes(
                    muts, names(guides)[i],
-                   template_range, template_ref,
+                   template_range, if (ALT_on_templates) template_alt else template_ref,
                    design_name, do_probes, probe_params)
                  names(result$template) <- paste0("Template_", names(guides[i]), "_NoMut")
                  repair_template <- c(repair_template, result$template)
@@ -246,7 +246,7 @@ design_hdr <- function(
                for (mut_combination in all_mut_combinations) {
                  result <- create_template_and_probes(
                    mut_combination, names(guides)[i],
-                   template_range, template_ref,
+                   template_range, if (ALT_on_templates) template_alt else template_ref,
                    design_name, do_probes, probe_params)
                  repair_template <- c(repair_template, result$template)
                  probes_ <- c(probes_, result$probes)
@@ -270,7 +270,7 @@ design_hdr <- function(
     # NHEJ probe - ~20 bp and have Tm values 58-60oC
     # contain the original mutated sequence &
     # no SNPs and no correction of the mutation
-    nhej_probes <- design_probes(template_alt, template_range,
+    nhej_probes <- design_probes(if (ALT_on_templates) template_ref else template_alt, template_range,
                                  len_min = 19, len_max = 25, tmin = 50, tmax = 65)
     nhej_probes <- select_probes(variant_genomic, nhej_probes, "NHEJ origin mutation probe")
     names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
