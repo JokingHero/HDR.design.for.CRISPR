@@ -9,6 +9,7 @@ get_guides_and_scores_refactored(
   design_name,
   guide_distance,
   genome,
+  ALT_on_guides,
   score_efficiency = TRUE
 )
 }
@@ -22,6 +23,8 @@ Must have an 'ALT' metadata column.}
 variant to search for guides.}
 
 \item{genome}{A BSgenome object for sequence retrieval.}
+
+\item{ALT_on_guides}{whether to put the ALT variant on the guides}
 
 \item{score_efficiency}{A logical flag. If TRUE, calculate efficiency scores.}
 }

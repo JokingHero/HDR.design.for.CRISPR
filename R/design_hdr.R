@@ -56,6 +56,8 @@ create_template_and_probes <- function(muts,
 #' @param variant_end Position end of the variant on the chromosome
 #' @param REF The original base on the genome, e.g., "A".
 #' @param ALT The desired mutated base, e.g., "G".
+#' @param ALT_on_guides Guides should match your target cell sequences. Select false when targetting wild type.
+#' @param ALT_on_templates This should match your desired outcome. Select true when correcting alt variant.
 #' @param output_dir Path to the directory where output files will be saved.
 #' @param annotation File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with `AnnotationDbi::loadDb`.
 #' @param genome A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.
@@ -94,6 +96,8 @@ design_hdr <- function(
     variant_end,
     REF,
     ALT,
+    ALT_on_guides,
+    ALT_on_templates,
     output_dir,
     annotation,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
@@ -139,7 +143,7 @@ design_hdr <- function(
 
   message("Finding and scoring guides...")
   guides <- get_guides_and_scores_refactored(
-    variant_genomic, design_name, guide_distance, genome, score_efficiency)
+    variant_genomic, design_name, guide_distance, genome, ALT_on_guides, score_efficiency)
   if (filter_to_guide != "") {
     found_guide <- guides$original == toupper(filter_to_guide)
     if (!any(found_guide)) {
@@ -263,14 +267,6 @@ design_hdr <- function(
     start(downstream_template_range) <- GenomicRanges::end(variant_with_allowed)
     end(downstream_template_range) <- end(downstream_template_range) + 50
 
-    # two chunks that can be used for Ref probes
-    rp <- design_probes(getSeq(genome, upstream_template_range)[[1]], upstream_template_range)
-    rp <- rp[which.max(rp$GC)]
-    rp2 <- design_probes(getSeq(genome, downstream_template_range)[[1]], downstream_template_range)
-    rp2 <- rp2[which.max(rp2$GC)]
-    ref_probes <- c(rp, rp2)
-    names(ref_probes) <- paste0("Ref probe ", seq_along(ref_probes))
-
     # NHEJ probe - ~20 bp and have Tm values 58-60oC
     # contain the original mutated sequence &
     # no SNPs and no correction of the mutation
@@ -279,7 +275,7 @@ design_hdr <- function(
     nhej_probes <- select_probes(variant_genomic, nhej_probes, "NHEJ origin mutation probe")
     names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
 
-    probes_ <- c(probes_, ref_probes, nhej_probes)
+    probes_ <- c(probes_, nhej_probes)
   }
 
   primers <- if (primer3 != "") {

@@ -11,6 +11,8 @@ design_hdr(
   variant_end,
   REF,
   ALT,
+  ALT_on_guides,
+  ALT_on_templates,
   output_dir,
   annotation,
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
@@ -47,6 +49,10 @@ design_hdr(
 \item{REF}{The original base on the genome, e.g., "A".}
 
 \item{ALT}{The desired mutated base, e.g., "G".}
+
+\item{ALT_on_guides}{Guides should match your target cell sequences. Select false when targetting wild type.}
+
+\item{ALT_on_templates}{This should match your desired outcome. Select true when correcting alt variant.}
 
 \item{output_dir}{Path to the directory where output files will be saved.}
 

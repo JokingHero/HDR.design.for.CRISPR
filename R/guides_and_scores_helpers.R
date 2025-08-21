@@ -63,6 +63,7 @@ process_strand <- function(
 #' @param guide_distance An integer, the window size (in bp) on each side of the
 #'        variant to search for guides.
 #' @param genome A BSgenome object for sequence retrieval.
+#' @param ALT_on_guides whether to put the ALT variant on the guides
 #' @param score_efficiency A logical flag. If TRUE, calculate efficiency scores.
 #' @return A GRanges object containing all found guides, their sequences, scores
 #'         (for successfully run algorithms), and a final aggregated rank.
@@ -70,13 +71,19 @@ process_strand <- function(
 #'
 get_guides_and_scores_refactored <- function(
     variant_genomic, design_name, guide_distance, genome,
+    ALT_on_guides,
     score_efficiency = TRUE) {
   window_width <- guide_distance * 2 + 1 + 35 * 2 # 35bp is guide score length padding
   window_genomic <- resize(variant_genomic, width = window_width, fix = "center")
   genomic_seq <- getSeq(genome, window_genomic)[[1]]
-  mutated_seq <- replaceAt(genomic_seq,
-                           at = IRanges(guide_distance + 1 + 35, width = 1),
-                           value = DNAStringSet(variant_genomic$ALT))
+  mutated_seq <- if (ALT_on_guides) {
+    replaceAt(genomic_seq,
+              at = IRanges(guide_distance + 1 + 35, width = 1),
+              value = DNAStringSet(variant_genomic$ALT))
+  } else {
+    genomic_seq
+  }
+
   scorers <- list(
     doench_2014 = list(
       # Extracts 30bp sequence ending 3bp after PAM
