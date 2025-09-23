@@ -54,7 +54,7 @@ calculate_compatibility_map <- function(mutations) {
     mutations$compatibility_map[is.na(compat)] <- 2          # In dbSNP, but not known variant
     mutations$compatibility_map[which(compat)] <- 1          # Known variant
   } else {
-    mutations$compatibility_map <- rep(2, length(mutations)) # All unknown
+    mutations$compatibility_map <- rep(3, length(mutations)) # All unknown
   }
   mutations
 }
