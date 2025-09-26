@@ -1,7 +1,12 @@
 import argparse
-import pandas as pd
-from alphagenome.data import genome
-from alphagenome.models import dna_client, variant_scorers
+import sys
+try:
+    import pandas as pd
+    from alphagenome.data import genome
+    from alphagenome.models import dna_client, variant_scorers
+except ImportError as e:
+    print(f"Error: {e}. Please make sure you have pandas and alphagenome installed. You can install them using pip: pip install pandas alphagenome-client", file=sys.stderr)
+    sys.exit(1)
 
 def score_variants(api_key, input_csv_path, species, output):
     """
