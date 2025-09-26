@@ -201,7 +201,7 @@ export_design_results <- function(
   write_component_files(output_dir, design_name, repair_template, "templates", chrom_relative)
   write_component_files(output_dir, design_name, probes_, "probes", chrom_relative)
 
-  if (!is.null(primers)) {
+  if (!is.null(primers) && length(primers) > 0) {
     # Calculate relative coordinates within the chrom_relative window
     primers_left <- GRanges(seqnames = primers$chrom,
                             ranges = IRanges(start = as.numeric(primers$LEFT_genomic_start),

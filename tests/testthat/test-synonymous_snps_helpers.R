@@ -1,8 +1,7 @@
 library(testthat)
 library(GenomicRanges)
 
-annot <- system.file(
-  "data", "gencode.v42.annotation_mini.gff3", package = "HDR.design.for.CRISPR")
+annot <- testthat::test_path("testdata", "gencode.v42.annotation_mini.gff3")
 txdb <- suppressMessages(
   suppressWarnings(txdbmaker::makeTxDbFromGFF(annot, format = "gff3")))
 

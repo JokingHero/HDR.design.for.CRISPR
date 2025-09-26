@@ -1,0 +1,2 @@
+seqnames,start,end,width,strand,REF,ALT,start_relative,end_relative
+chr3,41224622,41224622,1,+,C,T,1001,1001
