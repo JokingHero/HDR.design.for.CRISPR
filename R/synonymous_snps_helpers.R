@@ -287,12 +287,16 @@ annotate_mutations_with_alphagenome <- function(all_variants,
                                                 alphagenome_key,
                                                 species,
                                                 python_exec = "python3") {
+  if (Sys.which(python_exec) == "") {
+    stop(paste0("Python executable '", python_exec, "' not found. ",
+                "Please make sure python is installed and in your PATH."))
+  }
   species <- match.arg(species, c("human", "mouse"))
   script_path <- system.file(
     "exec", "score_variants_with_alphagenome.py", package = "HDR.design.for.CRISPR")
   if (script_path == "") {
-    message(paste0(
-      "Could not find 'score_variants.py' in the 'exec' folder of the package. Please ensure the script is in '/exec/'."
+    stop(paste0(
+      "Could not find 'score_variants_with_alphagenome.py' in the 'exec' folder of the package. Please ensure the script is in the 'inst/exec' directory and re-install the package."
     ))
   }
 
@@ -312,18 +316,16 @@ annotate_mutations_with_alphagenome <- function(all_variants,
   result <- system2(python_exec, args = args, stdout = TRUE, stderr = TRUE)
   status <- attr(result, "status")
   if (!is.null(status) && status != 0) {
-    message(
-      "Python script execution failed.\n",
-      "Exit Status: ", status, "\n",
+    stop(
+      "Python script execution failed with exit status ", status, ".\n",
+      "Command: ", python_exec, " ", paste(args, collapse = " "), "\n",
       "Output:\n", paste(result, collapse = "\n")
     )
-    return(S4Vectors::DataFrame())
   }
 
-  if (!file.exists(temp_output_csv)) {
-    message("Python script completed but did not generate the output file.\n",
+  if (!file.exists(temp_output_csv) || file.info(temp_output_csv)$size == 0) {
+    stop("Python script seems to have completed, but the output file is missing or empty.\n",
              "Output:\n", paste(result, collapse = "\n"))
-    return(S4Vectors::DataFrame())
   }
   mean_raw_score <- raw_score <- variant_id <- output_type <- NULL
   ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
