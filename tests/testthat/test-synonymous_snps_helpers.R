@@ -2,8 +2,9 @@ library(testthat)
 library(GenomicRanges)
 
 annot <- system.file(
-  "tests", "gencode.v42.annotation_mini.gff3", package = "HDR.design.for.CRISPR")
-txdb <- suppressMessages(suppressWarnings(txdbmaker::makeTxDbFromGFF(annot)))
+  "data", "gencode.v42.annotation_mini.gff3", package = "HDR.design.for.CRISPR")
+txdb <- suppressMessages(
+  suppressWarnings(txdbmaker::makeTxDbFromGFF(annot, format = "gff3")))
 
 test_that("get_search_positions", {
   up_pos <- c(1, 5, 10)

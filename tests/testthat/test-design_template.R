@@ -12,7 +12,7 @@
 # genomic site: chr3 41224222-41225022
 #
 
-# annot <- system.file("tests", "gencode.v42.annotation_mini.gff3", package = "HDR.design.for.CRISPR")
+# annot <- system.file("data", "gencode.v42.annotation_mini.gff3", package = "HDR.design.for.CRISPR")
 # txdb <- suppressWarnings(GenomicFeatures::makeTxDbFromGFF(annot))
 # withr::local_tempdir()
 # test_that("get_cds", {
