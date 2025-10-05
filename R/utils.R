@@ -359,7 +359,7 @@ select_probes <- function(muts_to_cover, candidates, temp_name) {
   these_probes <- GRanges()
   strand(muts_to_cover) <- "*"
 
-  for (k in 1:length(muts_to_cover)) {
+  for (k in seq_along(muts_to_cover)) {
     o <- findOverlaps(candidates, muts_to_cover)
     if (length(S4Vectors::queryHits(o)) == 0) {
       warning("Could not design probes for all of the mutations for ",

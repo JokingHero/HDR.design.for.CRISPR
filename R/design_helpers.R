@@ -47,14 +47,34 @@ design_primers <- function(
   )
   opts <- c(paste0(options, "=", values), "=")
 
-  out <- system2(command = primer3_path, input = opts,
-                 stdout = TRUE)
+  out <- tryCatch({
+    system2(command = primer3_path, input = opts, stdout = TRUE, stderr = TRUE)
+  }, error = function(e) {
+    warning("Failed to execute primer3. Please check if 'primer3_core' is installed and the path is correct. Error: ", e$message)
+    return(GRanges())
+  })
+
+  status <- attr(out, "status")
+  if (!is.null(status) && status != 0) {
+    warning("Primer3 execution failed with exit code ", status, ". Output:\n", paste(out, collapse="\n"))
+    return(GRanges())
+  }
+
+  if (is.null(out) || length(out) < 2) {
+    warning("Primer3 did not return valid output.")
+    return(GRanges())
+  }
+
   out <- strsplit(out, "=")
   out <- out[1:(length(out) - 1)]
   tags <- sapply(out, `[[`, 1)
   res <- sapply(out, `[[`, 2)
 
   pair_count <- as.numeric(res[tags == "PRIMER_PAIR_NUM_RETURNED"])
+  if (is.na(pair_count) || pair_count == 0) {
+    message("Primer3 did not find any suitable primer pairs.")
+    return(GRanges())
+  }
   primers <- list()
   for (i in seq_len(pair_count)) {
     sl <- res[tags == paste0("PRIMER_LEFT_", i - 1, "_SEQUENCE")]

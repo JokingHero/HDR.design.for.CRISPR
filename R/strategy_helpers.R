@@ -69,7 +69,14 @@ calculate_compatibility_map <- function(mutations) {
 #'
 format_output_muts <- function(selected_muts, guides, pams, strategy) {
   if (length(selected_muts) == 0) {
-    return(list(selected_muts, 0, 0, 0, FALSE, 0))
+    return(list(
+      mutations = selected_muts,
+      pam_disrupted_count = 0,
+      guide_disrupted_count = 0,
+      total_cadd = 0,
+      any_overlaps_noncoding = FALSE,
+      total_compatibility_score = 0
+    ))
   }
   strand(selected_muts) <- "+"
   total_cadd <- if (!is.null(selected_muts$CADD)) sum(selected_muts$CADD) else 0

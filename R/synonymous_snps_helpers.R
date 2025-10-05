@@ -369,7 +369,7 @@ prepare_candidate_snps <- function(
   all_variants <- get_all_possible_mutations(search_positions, genome)
   all_variants$CDS <- annotate_variants_with_cds(all_variants, txdb, genome)
 
-  # Only truly synonymous SNPs are left
+  # Only benign SNPs are left
   # empty DataFrame for no overlapping CDS also is a pass
   all_variants <- all_variants[sapply(all_variants$CDS, function(x) all(x$aa_ref == x$aa_alt))]
   # filter out too close to the splice sites

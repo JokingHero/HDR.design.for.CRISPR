@@ -26,7 +26,9 @@ create_template_and_probes <- function(muts,
   # Create a unique name for the template based on the guide and mutations
   temp_name <- paste0("Template_", guide_name, "_Mut_",
                       paste0(names(muts$mutations), collapse = "; "))
-  names(template_range) <- temp_name
+  if (length(template_range) > 0) {
+    names(template_range) <- temp_name
+  }
 
   hdr_probes <- GRanges()
   if (do_probes) {
@@ -141,9 +143,20 @@ design_hdr <- function(
     intron_bp, exon_bp, clinvar, snps, cadd,
     alphagenome_key, python_exec)
 
+  if (length(var_data) == 0) {
+    stop("No candidate synonymous SNPs were found in the specified regions.
+         Consider expanding 'allowed positions upstream/downstream' or checking the annotation.",
+         call. = FALSE)
+  }
+
   message("Finding and scoring guides...")
   guides <- get_guides_and_scores_refactored(
     variant_genomic, design_name, guide_distance, genome, ALT_on_guides, score_efficiency)
+  if (length(guides) == 0) {
+    stop(paste("No suitable guides were found within the", guide_distance,
+               "bp window around the variant."), call. = FALSE)
+  }
+
   if (filter_to_guide != "") {
     found_guide <- guides$original == toupper(filter_to_guide)
     if (!any(found_guide)) {
@@ -256,6 +269,10 @@ design_hdr <- function(
          },
          stop("Invalid 'strategy' specified. Must be one of 'optimal_per_guide', 'optimal_for_all', or 'all_per_guide'.")
   )
+
+  if (length(repair_template) == 0) {
+    stop("No valid repair templates could be generated with the given parameters and strategy.", call. = FALSE)
+  }
 
   if (do_probes) {
     # Reference probes - outside of the SNP area
