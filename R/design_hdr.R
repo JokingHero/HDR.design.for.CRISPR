@@ -40,7 +40,9 @@ create_template_and_probes <- function(muts,
 
     # Select the best probes to cover the introduced mutations
     hdr_probes <- select_probes(muts$mutations, candidates, temp_name)
-    names(hdr_probes) <- paste0("HDR probe ", seq_along(hdr_probes), " for ", temp_name)
+    if (length(hdr_probes) > 0) {
+      names(hdr_probes) <- paste0("HDR probe ", seq_along(hdr_probes), " for ", temp_name)
+    }
   }
 
   list(template = template_range, probes = hdr_probes)
@@ -240,7 +242,9 @@ design_hdr <- function(
                    muts, names(guides)[i],
                    template_range, if (ALT_on_templates) template_alt else template_ref,
                    design_name, do_probes, probe_params)
-                 names(result$template) <- paste0("Template_", names(guides[i]), "_NoMut")
+                 if (length(result$template) > 0) {
+                   names(result$template) <- paste0("Template_", names(guides[i]), "_NoMut")
+                 }
                  repair_template <- c(repair_template, result$template)
                  probes_ <- c(probes_, result$probes)
                  next # continue to next mpt
@@ -290,8 +294,9 @@ design_hdr <- function(
     nhej_probes <- design_probes(if (ALT_on_templates) template_ref else template_alt, template_range,
                                  len_min = 19, len_max = 25, tmin = 50, tmax = 65)
     nhej_probes <- select_probes(variant_genomic, nhej_probes, "NHEJ origin mutation probe")
-    names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
-
+    if (length(nhej_probes) > 0) {
+      names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
+    }
     probes_ <- c(probes_, nhej_probes)
   }
 
