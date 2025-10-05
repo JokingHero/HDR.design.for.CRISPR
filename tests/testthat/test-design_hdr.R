@@ -63,8 +63,9 @@ test_that("End-to-end test for STAT3 (minus strand)", {
   )
 
   # Get lists of files in both directories
-  output_files <- list.files(output_dir, full.names = TRUE)
-  expected_files <- list.files(expected_files_dir, full.names = TRUE)
+  # we only grab CSV because they don't save dates
+  output_files <- list.files(output_dir, full.names = TRUE, pattern = "*.csv")
+  expected_files <- list.files(expected_files_dir, full.names = TRUE, pattern = "*.csv")
 
   # Extract just the filenames for comparison
   output_basenames <- basename(output_files)
@@ -127,8 +128,8 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
   )
 
   # Get lists of files in both directories
-  output_files <- list.files(output_dir, full.names = TRUE)
-  expected_files <- list.files(expected_files_dir, full.names = TRUE)
+  output_files <- list.files(output_dir, full.names = TRUE, pattern = "*.csv")
+  expected_files <- list.files(expected_files_dir, full.names = TRUE, pattern = "*.csv")
 
   # Extract just the filenames for comparison
   output_basenames <- basename(output_files)

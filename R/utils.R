@@ -292,29 +292,67 @@ get_combinations_of_mutations <- function(mutations, n, mutations_per_template) 
   selected_combs
 }
 
-melting_temp <- function(x) TmCalculator::Tm_GC(
-  ntseq = as.character(x),
-  variant = "Primer3Plus", Na = 50, outlist = FALSE)
+#' Vectorized Melting Temperature Calculation (Primer3Plus variant)
+#'
+#' This function calculates the melting temperature for a DNAStringSet using the
+#' TmCalculator::Tm_GC Primer3Plus formula.
+#' Primer3Plus: Tm = 81.5 + 0.41(Percentage_GC) - 600/N + 16.6 x log(Na+)
+#' It is significantly faster than calling original Tm_GC.
+#'
+#' @param x A DNAStringSet object.
+#' @param Na The concentration of Na+ in mM.
+#' @return A numeric vector of melting temperatures.
+melting_temp_vec <- function(x, Na = 50) {
+  # Note: We use log10 and convert Na+ to Molar, which is standard.
+  gc_prob <- gc_fract(x)
+  probe_len <- width(x)
 
-gc_fract <- function(x) letterFrequency(x, letters = "CG", as.prob = TRUE)
+  # The salt correction part of the formula is 16.6 * log10([Na+]) where [Na+] is in Molar.
+  # Na is provided in mM, so we divide by 1000.
+  salt_correction <- 16.6 * log10(Na / 1000)
+
+  tm <- 81.5 + 0.41 * (gc_prob * 100) - 600 / probe_len + salt_correction
+  return(tm)
+}
+
+gc_fract <- function(x) letterFrequency(x, letters = "CG", as.prob = TRUE)[, 1]
 
 design_probes <- function(s, template_range,
                           tmin = 59, tmax = 61, len_min = 20, len_max = 25) {
-  probes <- GRanges()
-  for (len in len_min:len_max) { # for each length
-    for (i in 1:(nchar(s)-len)) { # for each bases
-      si <- s[i:(i + len - 1)]
-      tm <- melting_temp(si)
-      if (tm < tmin | tm > tmax) next
-      this_probe <- pmapFromTranscripts(IRanges(start = i, width = len), template_range)
-      this_probe$ALT <- as.character(si)
-      this_probe$length <- len
-      this_probe$Tm <- tm
-      this_probe$GC <- gc_fract(si)
-      probes <- c(probes, this_probe)
-    }
+  # 1. Generate all possible probe ranges in a vectorized way
+  all_ranges <- lapply(len_min:len_max, function(len) {
+    starts <- 1:(nchar(s) - len + 1)
+    IRanges(start = starts, width = len)
+  })
+  probe_ranges <- unlist(IRangesList(all_ranges))
+
+  # 2. Create views on the DNAString to get the probe sequences
+  probe_views <- Views(s, probe_ranges)
+  probes_ss <- methods::as(probe_views, "DNAStringSet")
+
+  # 3. Calculate melting temperatures for all probes at once
+  tms <- melting_temp_vec(probes_ss)
+
+  # 4. Filter probes based on melting temperature
+  keep_indices <- which(tms >= tmin & tms <= tmax)
+
+  if (length(keep_indices) == 0) {
+    return(GRanges())
   }
-  return(probes)
+
+  filtered_probes_ss <- probes_ss[keep_indices]
+  filtered_ranges <- probe_ranges[keep_indices]
+  filtered_tms <- tms[keep_indices]
+
+  # 5. map to genomic coords
+  final_probes <- pmapFromTranscripts(filtered_ranges, template_range)
+
+  # 6. Add metadata to the final GRanges object
+  final_probes$ALT <- as.character(filtered_probes_ss)
+  final_probes$length <- width(filtered_probes_ss)
+  final_probes$Tm <- filtered_tms
+  final_probes$GC <- gc_fract(filtered_probes_ss)
+  return(final_probes)
 }
 
 select_probes <- function(muts_to_cover, candidates, temp_name) {
