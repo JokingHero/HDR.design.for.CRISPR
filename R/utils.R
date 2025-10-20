@@ -1,3 +1,12 @@
+translate_safe <- function(dna_string_set) {
+  ambig <- rowSums(
+    alphabetFrequency(dna_string_set, baseOnly = FALSE)[, 5:18]) > 0
+  trans <- suppressWarnings(Biostrings::translate(dna_string_set[!ambig]))
+  final <- rep("NA", length(dna_string_set))
+  final[!ambig] <- as.character(trans)
+  final
+}
+
 # locus_name = mutation_name
 # gseq = genomic_seq[[1]]
 # organism_name = organism(genome)

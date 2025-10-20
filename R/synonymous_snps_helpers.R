@@ -137,10 +137,19 @@ annotate_variants_with_cds <- function(all_variants, txdb, genome) {
     ref_codons_dna <- mapply(function(tid, cnum) {
       transcript_seq <- cds_seqs[[tid]]
       codon_start_pos <- (cnum - 1) * 3 + 1
-      if (codon_start_pos + 2 > length(transcript_seq)) {
-        return(DNAString("NNN"))
+      remaining_bases <- length(transcript_seq) - codon_start_pos + 1
+      # Case normal
+      if (remaining_bases >= 3) {
+        return(subseq(transcript_seq, start = codon_start_pos, width = 3))
       }
-      subseq(transcript_seq, start = codon_start_pos, width = 3)
+      # Case incomplete codon
+      if (remaining_bases > 0) {
+        partial_codon <- subseq(transcript_seq, start = codon_start_pos, width = remaining_bases)
+        padding <- DNAString(strrep("N", 3 - remaining_bases))
+        return(xscat(partial_codon, padding))
+      }
+      # Case nonsense
+      return(DNAString("NNN"))
     }, tx_ids, codon_num, SIMPLIFY = FALSE)
     ref_codons_dna <- DNAStringSet(ref_codons_dna)
     alt_codons_dna <- replaceAt(
@@ -154,8 +163,8 @@ annotate_variants_with_cds <- function(all_variants, txdb, genome) {
       tx_strand = tx_strands,
       codon_ref = as.character(ref_codons_dna),
       codon_alt = as.character(alt_codons_dna),
-      aa_ref = as.character(suppressWarnings(translate(ref_codons_dna))),
-      aa_alt = as.character(suppressWarnings(translate(alt_codons_dna))),
+      aa_ref = translate_safe(ref_codons_dna),
+      aa_alt = translate_safe(alt_codons_dna),
       codon_num = codon_num,
       frame = frame)
   })
