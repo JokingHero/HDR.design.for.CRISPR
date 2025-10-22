@@ -1,6 +1,10 @@
 translate_safe <- function(dna_string_set) {
-  ambig <- rowSums(
-    alphabetFrequency(dna_string_set, baseOnly = FALSE)[, 5:18]) > 0
+  af <- alphabetFrequency(dna_string_set, baseOnly = FALSE)[, 5:18]
+  ambig <- if (!is.array(af)) {
+    sum(af) > 0
+  } else {
+    rowSums(af) > 0
+  }
   trans <- suppressWarnings(Biostrings::translate(dna_string_set[!ambig]))
   final <- rep("NA", length(dna_string_set))
   final[!ambig] <- as.character(trans)

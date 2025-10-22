@@ -76,9 +76,11 @@ get_guides_and_scores_refactored <- function(
   window_width <- guide_distance * 2 + 1 + 35 * 2 # 35bp is guide score length padding
   window_genomic <- resize(variant_genomic, width = window_width, fix = "center")
   genomic_seq <- getSeq(genome, window_genomic)[[1]]
+
+  variant_in_window <- pmapToTranscripts(variant_genomic, window_genomic)
   mutated_seq <- if (ALT_on_guides) {
     replaceAt(genomic_seq,
-              at = IRanges(guide_distance + 1 + 35, width = 1),
+              at = ranges(variant_in_window),
               value = DNAStringSet(variant_genomic$ALT))
   } else {
     genomic_seq
