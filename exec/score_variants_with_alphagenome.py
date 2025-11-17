@@ -90,7 +90,7 @@ def score_variants(api_key, input_csv_path, species, output):
         )
         
         # The interval is the sequence length around the variant to be analyzed
-        sequence_length = '2KB'  # @param ["2KB", "16KB", "100KB", "500KB", "1MB"] { type:"string" }
+        sequence_length = '16KB'  # @param ["16KB", "100KB", "500KB", "1MB"] { type:"string" }
         sequence_length = dna_client.SUPPORTED_SEQUENCE_LENGTHS[
             f'SEQUENCE_LENGTH_{sequence_length}'
         ]
