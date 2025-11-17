@@ -1,3 +1,7 @@
+import warnings
+# Silence all UserWarnings
+warnings.filterwarnings('ignore', category=UserWarning)
+
 import argparse
 import sys
 try:
