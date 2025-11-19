@@ -42,175 +42,189 @@ select_non_overlapping_mutations <- function(gr, N) {
   return(selected_gr)
 }
 
-#' Calculate compatibility map based on dbSNP information
+#' @title Augment var_data with scoring and priority columns
+#' @description Pre-calculates several columns on the var_data GRanges to
+#'   facilitate the different optimization sorting schemes.
+#' @param var_data The main GRanges object of candidate SNPs.
+#' @param pam_proximal_threshold An integer defining what `position_in_guide`
+#'   is considered PAM-proximal.
+#' @param benign_cadd_threshold A numeric CADD score below which a variant is
+#'   considered "predicted benign".
+#' @return The augmented var_data GRanges object.
 #' @keywords internal
-#'
-calculate_compatibility_map <- function(mutations) {
-  if (!is.null(mutations$dbSNP)) {
-    compat <- sapply(mutations$dbSNP, function(x) {
-      if (is.null(x) || nrow(x) == 0) NA else any(x$is_known_variant)
+augment_var_data_with_scores <- function(var_data,
+                                         pam_proximal_threshold = 12,
+                                         benign_cadd_threshold = 5) {
+  if (length(var_data) == 0) return(var_data)
+
+  # --- 1. Standardize Safety/Confidence Metrics ---
+  # dbSNP Priority (lower is better)
+  var_data$dbSNP_priority <- 3 # Default: Unknown
+  if (!is.null(var_data$dbSNP)) {
+    is_known_variant <- sapply(var_data$dbSNP, function(df) {
+      if (nrow(df) > 0) any(df$is_known_variant) else NA
     })
-    mutations$compatibility_map <- rep(3, length(mutations)) # Default: not in dbSNP
-    mutations$compatibility_map[is.na(compat)] <- 2          # In dbSNP, but not known variant
-    mutations$compatibility_map[which(compat)] <- 1          # Known variant
-  } else {
-    mutations$compatibility_map <- rep(3, length(mutations)) # All unknown
+    var_data$dbSNP_priority[!is.na(is_known_variant) & !is_known_variant] <- 2 # Known, but not matching allele
+    var_data$dbSNP_priority[is_known_variant] <- 1 # Gold standard: Known benign
   }
-  mutations
+
+  # Non-coding Overlap
+  var_data$has_nc_overlap <- FALSE
+  if (!is.null(var_data$noncoding)) {
+    var_data$has_nc_overlap <- sapply(var_data$noncoding, nrow) > 0
+  }
+
+  # Ensure CADD exists
+  if (is.null(var_data$CADD)) var_data$CADD <- 0
+
+  # --- 2. Calculate Tiers for "Balanced" Scheme ---
+  var_data$is_pam_proximal <- var_data$position_in_guide > pam_proximal_threshold
+  is_known_benign <- var_data$dbSNP_priority == 1
+  is_predicted_benign <- var_data$CADD < benign_cadd_threshold & !var_data$has_nc_overlap
+
+  # Assign tiers from worst to best (lower tier number is better)
+  var_data$priority_tier <- 6 # Tier 6: Fallback (default)
+  var_data$priority_tier[var_data$is_pam_proximal & !is_known_benign & !is_predicted_benign] <- 5
+  var_data$priority_tier[is_predicted_benign & !var_data$is_pam_proximal & !is_known_benign] <- 4
+  var_data$priority_tier[is_predicted_benign & var_data$is_pam_proximal & !is_known_benign] <- 3
+  var_data$priority_tier[is_known_benign & !var_data$is_pam_proximal] <- 2
+  var_data$priority_tier[is_known_benign & var_data$is_pam_proximal] <- 1 # Tier 1: Perfect
+  return(var_data)
 }
 
-#' Create the final summary list output
-#' @param selected_muts The final GRanges of selected mutations.
-#' @param guides The GRanges of guides (can be single or multiple).
-#' @param pams The GRanges of pams (can be single or multiple).
-#' @param strategy The selection strategy used.
-#' @return A list with the standard output format.
+#' @title Find the best set of SNPs for a single guide
+#' @description Sorts candidate SNPs based on a chosen scheme and greedily
+#'   selects the top N non-overlapping ones.
+#' @return A GRanges object of the selected mutations.
 #' @keywords internal
-#'
-format_output_muts <- function(selected_muts, guides, pams, strategy) {
-  if (length(selected_muts) == 0) {
-    return(list(
-      mutations = selected_muts,
-      pam_disrupted_count = 0,
-      guide_disrupted_count = 0,
-      total_cadd = 0,
-      any_overlaps_noncoding = FALSE,
-      total_compatibility_score = 0
-    ))
-  }
-  strand(selected_muts) <- "+"
-  total_cadd <- if (!is.null(selected_muts$CADD)) sum(selected_muts$CADD) else 0
-  any_noncoding <- any(selected_muts$overlaps_noncoding > 0)
-  sum_compat_map <- sum(selected_muts$compatibility_map)
+find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
+  if (length(guide_snps) == 0) return(GRanges())
 
-  if (strategy == "best_global") {
-    # For global strategy, count how many of the *original* guides/pams are hit
-    pam_disruption_count <- sum(pams %over% selected_muts)
-    guide_disruption_count <- sum(guides %over% selected_muts)
-  } else {
-    # For single-guide strategies, just sum the boolean column
-    pam_disruption_count <- sum(selected_muts$pam_disrupted)
-    guide_disruption_count <- sum(selected_muts$guide_disrupted)
-  }
-
-  list(
-    mutations = selected_muts,
-    pam_disrupted_count = pam_disruption_count,
-    guide_disrupted_count = guide_disruption_count,
-    total_cadd = total_cadd,
-    any_overlaps_noncoding = any_noncoding,
-    total_compatibility_score = sum_compat_map
+  ordering <- switch(
+    optimization_scheme,
+    "balanced" = order(
+      guide_snps$priority_tier,      # Tier 1 is best
+      -guide_snps$position_in_guide, # Within tier, proximal is best
+      guide_snps$CADD                # Further tie-breaker
+    ),
+    "safety_first" = order(
+      guide_snps$dbSNP_priority,       # Known benign is best
+      guide_snps$has_nc_overlap,       # No overlap is best
+      guide_snps$CADD,                 # Low CADD is best
+      -guide_snps$position_in_guide    # Tie-breaker: disruption
+    ),
+    "disruption_first" = order(
+      -guide_snps$position_in_guide,   # Proximal is best
+      guide_snps$dbSNP_priority,       # Tie-breaker: safety
+      guide_snps$has_nc_overlap,
+      guide_snps$CADD
+    ),
+    stop("Invalid optimization_scheme")
   )
+
+  sorted_snps <- guide_snps[ordering]
+  select_non_overlapping_mutations(sorted_snps, N)
 }
 
-#' @title Select mutation combinations based on different strategies
-#' @description
-#' A unified function to find optimal or all combinations of mutations.
-#' It can operate in three modes:
-#' 1.  `"best_single"`: Greedily finds the best set of non-overlapping mutations
-#'     for a *single* guide. Prefers mutations that disrupt the PAM, then the guide.
-#' 2.  `"best_global"`: Greedily finds the best set of non-overlapping mutations
-#'     that disrupt the *maximum number* of guides/PAMs from a larger set.
-#' 3.  `"all_valid"`: Finds all possible non-overlapping combinations of a given size
-#'     for a *single* guide, filtered to those that overlap the guide or PAM.
-#'
-#' @param mutations GRanges object with all possible mutations.
-#' @param guides A GRanges object. For `strategy = "best_single"` or `"all_valid"`,
-#'   this should be a single guide. For `strategy = "best_global"`, this can be
-#'   a GRanges object containing multiple guides.
-#' @param pams A GRanges object, corresponding to the `guides`.
-#' @param maximum_mutations_per_template The number of mutations to select (N).
-#' @param strategy A character string specifying the selection mode. One of
-#'   `"best_single"`, `"best_global"`, or `"all_valid"`.
-#' @return
-#' For `strategy = "best_single"` or `"best_global"`, a single list containing
-#' the selected mutations and summary statistics.
-#' For `strategy = "all_valid"`, a list of lists, where each inner list represents
-#' a valid combination.
+#' @title Find all valid combinations of SNPs for a single guide
+#' @description Generates all combinations of a given size and filters them
+#'   for validity (no overlaps).
+#' @return A list of GRanges objects, each a valid combination.
+#' @keywords internal
+find_all_snp_combinations_for_guide <- function(guide_snps, mpt) {
+  if (length(guide_snps) < mpt) return(list())
+
+  combs_indices <- combn(seq_along(guide_snps), mpt, simplify = FALSE)
+
+  valid_combinations <- lapply(combs_indices, function(indices) {
+    candidate_muts <- guide_snps[indices]
+    # Use select_non_overlapping_mutations as a validity check
+    selected <- select_non_overlapping_mutations(candidate_muts, mpt)
+    if (length(selected) == mpt) {
+      return(selected)
+    } else {
+      return(NULL)
+    }
+  })
+
+  # Remove NULLs from the list
+  valid_combinations[!sapply(valid_combinations, is.null)]
+}
+
+#' @title Create HDR template and probes from a set of mutations
+#' @description Injects selected SNPs into the base template sequence, calculates
+#'   summary statistics, and designs validation probes.
+#' @return A list containing the 'template' and 'probes' GRanges.
 #' @keywords internal
 #'
-find_mutation_combinations <- function(
-    mutations,
-    guides,
-    pams,
-    maximum_mutations_per_template,
-    strategy) {
-  strategy <- match.arg(strategy, choices = c("best_single", "best_global", "all_valid"))
-  if (length(mutations) == 0) {
-    if (strategy == "all_valid") return(list())
-    return(format_output_muts(mutations[0], guides, pams, strategy))
+create_template_and_probes <- function(selected_muts,
+                                       variants_in_editw,
+                                       variants_genomic_on_ts,
+                                       design_id,
+                                       edit_region,
+                                       source_genomic_seq,
+                                       do_probes,
+                                       probe_params) {
+  # Return empty list if no mutations were selected
+  if (is.null(selected_muts) || length(selected_muts) == 0) {
+    return(list(template = GRanges(), probes = GRanges()))
   }
-  # we set mutations as * to allow overlap with guides/PAMs
-  strand(mutations) <- "*"
-  mutations <- calculate_compatibility_map(mutations)
-  if (is.null(mutations$CADD)) {
-    mutations$CADD <- 0
-  }
-  mutations$overlaps_noncoding <-
-    sapply(mutations$noncoding, function(x) if(is.null(x)) 0 else nrow(x))
 
-  if (strategy == "best_global") {
-    # Global strategy: counts are used for scoring
-    mutations$pam_disrupted <- countOverlaps(mutations, pams)
-    mutations$guide_disrupted <- countOverlaps(mutations, guides)
-    mutations$distance_to_guide <- sapply(seq_along(mutations),
-                                          function(i) min(distance(pams, mutations[i])))
-    # Order by most guides/pams disrupted first
-    ordering <- order(
-      mutations$overlaps_noncoding,
-      -mutations$pam_disrupted,
-      -mutations$guide_disrupted,
-      mutations$CADD,
-      mutations$compatibility_map,
-      mutations$distance_to_guide
-    )
-  } else {
-    # Single-guide strategies: booleans are used for scoring
-    mutations$pam_disrupted <- mutations %over% pams
-    mutations$guide_disrupted <- mutations %over% guides
-    mutations$distance_to_guide <- distance(mutations, pams)
-    # Order by PAM disruption, then guide disruption
-    ordering <- order(
-      mutations$overlaps_noncoding,
-      !mutations$pam_disrupted,
-      !mutations$guide_disrupted,
-      mutations$CADD,
-      mutations$compatibility_map,
-      mutations$distance_to_guide
-    )
-  }
-  mutations <- mutations[ordering]
+  # Combine introduced SNPs with original template variants for injection
+  muts_in_editw <- pmapToTranscripts(selected_muts, edit_region)
+  muts_in_editw$ALT <- selected_muts$ALT
+  all_muts_in_editw <- sort(c(variants_in_editw, muts_in_editw))
 
-  if (strategy == "all_valid") {
-    # Filter to only mutations that actually hit the guide or PAM
-    mutations <- mutations[mutations$guide_disrupted | mutations$pam_disrupted]
-    if (length(mutations) < maximum_mutations_per_template) return(list())
+  # Inject all mutations to create the final HDR sequence
+  final_hdr_seq <- replaceAt(source_genomic_seq,
+                             at = ranges(all_muts_in_editw),
+                             value = DNAStringSet(all_muts_in_editw$ALT))
 
-    # Generate all combinations of the desired size
-    combs_indices <- combn(seq_along(mutations), maximum_mutations_per_template, simplify = FALSE)
+  # --- Summary Statistics ---
+  total_cadd <- sum(selected_muts$CADD, na.rm = TRUE)
+  pam_disrupted_count <- sum(selected_muts$position_in_guide >= 22)
+  guide_disrupted_count <- length(unique(selected_muts$guide_name))
+  any_overlaps_noncoding <- any(selected_muts$has_nc_overlap)
+  total_snp_quality_score <- sum(selected_muts$dbSNP_priority)
 
-    result_list <- lapply(combs_indices, function(indices) {
-      candidate_muts <- mutations[indices]
-      # A combination is valid only if it has no overlapping codons
-      selected <- select_non_overlapping_mutations(candidate_muts, maximum_mutations_per_template)
-      if (length(selected) == length(candidate_muts)) {
-        format_output_muts(selected, guides, pams, strategy)
-      } else {
-        NA # Mark invalid combinations
-      }
-    })
-    return(result_list[!is.na(result_list)])
+  # --- Create the final template GRanges object ---
+  template_gr <- edit_region
+  names(template_gr) <- design_id
+  template_gr$sequence <- as.character(final_hdr_seq)
+  template_gr$snps_introduced <- paste(names(selected_muts), collapse = ";")
+  template_gr$pam_disrupted_count <- pam_disrupted_count
+  template_gr$guide_disrupted_count <- guide_disrupted_count
+  template_gr$total_cadd <- total_cadd
+  template_gr$any_overlaps_noncoding <- any_overlaps_noncoding
+  template_gr$total_snp_quality_score <- total_snp_quality_score
 
-  } else { # Handles "best_single" and "best_global"
-    # Greedily select the top N non-overlapping mutations
-    selected_muts <- select_non_overlapping_mutations(mutations, maximum_mutations_per_template)
+  # --- Design Probes if requested ---
+  probes_out <- GRanges()
+  if (do_probes) {
+    # We need a coordinate map for the final_hdr_seq
+    hdr_template_coord_map <- build_variant_layout(
+      all_muts_in_editw, nchar(source_genomic_seq))
+    all_genomic_variants <- c(selected_muts, variants_genomic_on_ts)
 
-    if (strategy == "best_global") {
-      # The global strategy also truncates to the exact number requested
-      if(length(selected_muts) > maximum_mutations_per_template){
-        selected_muts <- selected_muts[1:maximum_mutations_per_template]
+    candidates <- design_probes(
+      s = final_hdr_seq,
+      genomic_context = edit_region,
+      coordinate_map = hdr_template_coord_map,
+      variants_genomic = all_genomic_variants,
+      tmin = probe_params$tmin, tmax = probe_params$tmax,
+      len_min = probe_params$len_min, len_max = probe_params$len_max)
+
+    if (nrow(candidates) > 0) {
+      probes_out <- select_probes(
+        muts_to_cover = selected_muts,
+        candidates = candidates,
+        temp_name = design_id)
+
+      if (nrow(probes_out) > 0) {
+        probes_out$names <- paste0("HDR_probe_", seq_len(nrow(probes_out)), "_for_", design_id)
       }
     }
-    return(format_output_muts(selected_muts, guides, pams, strategy))
   }
+
+  list(template = template_gr, probes = probes_out)
 }

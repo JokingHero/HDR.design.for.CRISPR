@@ -151,31 +151,35 @@ design_primers <- function(
 }
 
 #' @title Helper write components
-#' @description Helper to write CSV and GFF3 for a given GRanges component.
-#' It calculates relative coordinates within the `chrom_relative` window.
+#' @description Helper to write CSV and GFF3 for a given component
 #' @keywords internal
 #'
 write_component_files <- function(
-    output_dir, design_name, component, component_name, chrom_relative) {
-  if (length(component) == 0) {
+    output_dir, design_name, component, component_name) {
+  if (is(component, "GRanges")) {
+    component <- as.data.frame(component)
+    component$coords <- paste0(
+      component$seqnames, ":", component$start, "-", component$end)
+  }
+
+  if (nrow(component) == 0) {
     return(invisible(NULL))
   }
 
-  # Calculate relative coordinates within the chrom_relative window
-  component_relative <- pmapToTranscripts(component, chrom_relative)
-  mcols(component)$start_relative <- start(component_relative)
-  mcols(component)$end_relative <- end(component_relative)
+  component$seqnames <- NULL
+  component$start <- NULL
+  component$end <- NULL
+  component$width <- NULL
+  component$strand <- NULL
+  component$names <- rownames(component)
+  front <- intersect(c("names", "coords"), names(component))
+  component <- component[, c(front, setdiff(names(component), front)), drop = FALSE]
 
   # Write 1-based coordinate CSV file
-  df_component <- as.data.frame(component)
-  df_component$row_names <- names(component)
   write.table(
-    df_component,
+    component,
     file = file.path(output_dir, paste0(design_name, "_", component_name, "_1based.csv")),
     quote = FALSE, sep = ",", row.names = FALSE, col.names = TRUE)
-  rtracklayer::export.gff3(
-    component,
-    file.path(output_dir, paste0(design_name, "_", component_name, ".gff3")))
 }
 
 #' Export Design Results
@@ -183,58 +187,85 @@ write_component_files <- function(
 #' @keywords internal
 export_design_results <- function(
     output_dir, design_name,
-    variant_genomic,
+    variants_genomic,
     var_data, guides, repair_template,
-    genome, txdb,
-    primers = GRanges(),
-    probes_ = GRanges(),
-    score_efficiency = FALSE,
-    one_for_all = FALSE) {
+    genome, txdb, edit_region,
+    primers, all_probes) {
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-  # create large region of 1k BP arond the variant and map all coordinates there
-  chrom_relative <- promoters(
-    variant_genomic, 1000, 1000 + width(variant_genomic), use.names = FALSE)
-  chrom_relative_seq <- getSeq(genome, chrom_relative)[[1]]
-  strand(chrom_relative) <- "*"
+  # create large region of 1k BP around the edit window
+  large_window <- promoters(
+    edit_region, 1000, 1000 + width(edit_region),
+    use.names = FALSE)
+  large_window_seq <- getSeq(genome, large_window)[[1]]
+  strand(large_window) <- "*"
   # Write FASTA file
-  chrom <- DNAStringSet(chrom_relative_seq)
-  names(chrom) <- paste0(chrom_relative)
+  chrom <- DNAStringSet(large_window_seq)
+  names(chrom) <- as.character(large_window)
   Biostrings::writeXStringSet(
-    DNAStringSet(chrom_relative_seq), file.path(output_dir, paste0(design_name, ".fa")))
+    chrom, file.path(output_dir, paste0(design_name, ".fa")))
 
   if (length(guides) > 0) {
-    mcols(guides) <- mcols(guides)[
-      , !apply(mcols(guides), 2, function(x) all(is.na(x))), drop = FALSE]
+    guides <- guides[, !apply(guides, 2, function(x) all(is.na(x))), drop = FALSE]
   }
 
   # Write files for each component using the helper function
-  write_component_files(output_dir, design_name, variant_genomic, "query", chrom_relative)
-  write_component_files(output_dir, design_name, guides, "guides", chrom_relative)
-  repair_template <- repair_template[
-    order(!repair_template$overlaps_noncoding,
-          repair_template$pam_disrupted,
-          repair_template$guide_disrupted,
-          -repair_template$cadd,
-          repair_template$snp_quality,
-          decreasing = T),
-  ]
-  write_component_files(output_dir, design_name, repair_template, "templates", chrom_relative)
-  write_component_files(output_dir, design_name, probes_, "probes", chrom_relative)
+  # all_probes is dt, remove seqnames, start, end, width, strand
+  # var_data id long GRanges() (for each guide separately, repeated info)
+  # primers is dt, nothing changed here, should work with current function
+  write_component_files(output_dir, design_name, variants_genomic, "query")
+  write_component_files(output_dir, design_name, guides, "guides")
 
-  if (!is.null(primers) && length(primers) > 0) {
-    # Calculate relative coordinates within the chrom_relative window
-    primers_left <- GRanges(seqnames = primers$chrom,
-                            ranges = IRanges(start = as.numeric(primers$LEFT_genomic_start),
-                                             width = as.numeric(primers$LEFT_size)),
-                            strand = "+")
-    left_relative <- pmapToTranscripts(primers_left, chrom_relative)
-    primers$LEFT_start_pos <- start(left_relative)
-    primers_right <- GRanges(seqnames = primers$chrom,
-                            ranges = IRanges(start = as.numeric(primers$RIGHT_genomic_start),
-                                             width = as.numeric(primers$RIGHT_size)),
-                            strand = "+")
-    right_relative <- pmapToTranscripts(primers_right, chrom_relative)
-    primers$RIGHT_start_pos <- start(right_relative)
+  if (length(repair_template) > 0) {
+
+    # Ensure columns exist (defaults for sorting safety)
+    if(is.null(repair_template$any_overlaps_noncoding)) repair_template$any_overlaps_noncoding <- FALSE
+    if(is.null(repair_template$pam_disrupted_count)) repair_template$pam_disrupted_count <- 0
+    if(is.null(repair_template$guide_disrupted_count)) repair_template$guide_disrupted_count <- 0
+    if(is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
+    if(is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999 # Lower is better
+
+    ordering <- switch(
+      optimization_scheme,
+      "balanced" = order(
+        repair_template$any_overlaps_noncoding,     # Safety first (False is top)
+        -repair_template$pam_disrupted_count,       # Then PAM disruption (High is top)
+        repair_template$total_snp_quality_score,    # Then quality (Low is top)
+        repair_template$total_cadd),                # Then CADD (Low is top),
+      "safety_first" = order(
+        repair_template$any_overlaps_noncoding,     # Absolute priority: Non-coding
+        repair_template$total_snp_quality_score,    # Priority: Known Benign
+        repair_template$total_cadd,                 # Priority: Low CADD
+        -repair_template$pam_disrupted_count),      # Tie-breaker: Disruption
+      "disruption_first" = order(
+        -repair_template$pam_disrupted_count,       # Absolute priority: PAM
+        -repair_template$guide_disrupted_count,     # Priority: Total cuts
+        repair_template$any_overlaps_noncoding,     # Then Safety
+        repair_template$total_snp_quality_score),
+      # Default fallback if string doesn't match
+      order(
+        repair_template$any_overlaps_noncoding,
+        -repair_template$pam_disrupted_count,
+        repair_template$total_cadd))
+    repair_template <- repair_template[ordering]
+    write_component_files(output_dir, design_name, repair_template, "templates")
+  }
+  rownames(all_probes) <- all_probes$names
+  write_component_files(output_dir, design_name, all_probes, "probes")
+
+  if (!is.null(primers) && nrow(primers) > 0) { # Check nrow for data.frame
+    # Calculate relative coordinates within the large_window window
+    primers$LEFT_coords <- paste0(
+      primers$chrom, ":", primers$LEFT_genomic_start, "-",
+      as.numeric(primers$LEFT_genomic_start) + as.numeric(primers$LEFT_size))
+    primers$RIGHT_coords <- paste0(
+      primers$chrom, ":", primers$RIGHT_genomic_start, "-",
+      as.numeric(primers$RIGHT_genomic_start) + as.numeric(primers$RIGHT_size))
+    primers$RIGHT_genomic_start <- NULL
+    primers$LEFT_genomic_start <- NULL
+    primers$chrom <- NULL
+    front <- intersect(c("names", "RIGHT_coords", "LEFT_coords"), colnames(primers))
+    primers <- primers[, c(front, setdiff(names(primers), front)), drop = FALSE]
+
     write.table(
       as.data.frame(primers),
       file = file.path(output_dir, paste0(design_name, "_primers_1based.csv")),
@@ -242,55 +273,60 @@ export_design_results <- function(
   }
 
   # We move the complex annotations to separte tables
-  var_data_cds <- as.data.frame(var_data$CDS)
-  if (nrow(var_data_cds) > 0) var_data_cds$group_name <- names(var_data)[var_data_cds$group]
-  var_data_dbSNP <- as.data.frame(var_data$dbSNP)
-  if (nrow(var_data_dbSNP) > 0) var_data_dbSNP$group_name <- names(var_data)[var_data_dbSNP$group]
-  var_data_noncoding <- as.data.frame(var_data$noncoding)
-  if (nrow(var_data_noncoding) > 0) var_data_noncoding$group_name <-
-    names(var_data)[var_data_noncoding$group]
-  var_data$CDS <- NULL
-  var_data$dbSNP <- NULL
-  var_data$noncoding <- NULL
-  write_component_files(output_dir, design_name, var_data, "variants", chrom_relative)
+  if (length(var_data) > 0) {
+    # deduplicate
+    var_names <- sapply(strsplit(names(var_data), " "), `[[`, 1)
+    var_data <- var_data[!duplicated(var_names)]
+    names(var_data) <- var_names[!duplicated(var_names)]
+    var_data_cds <- as.data.frame(var_data$CDS)
+    if (nrow(var_data_cds) > 0) var_data_cds$group_name <- names(var_data)[var_data_cds$group]
+    var_data_dbSNP <- as.data.frame(var_data$dbSNP)
+    if (nrow(var_data_dbSNP) > 0) var_data_dbSNP$group_name <- names(var_data)[var_data_dbSNP$group]
+    var_data_noncoding <- as.data.frame(var_data$noncoding)
+    if (nrow(var_data_noncoding) > 0) var_data_noncoding$group_name <-
+      names(var_data)[var_data_noncoding$group]
+    var_data$CDS <- NULL
+    var_data$dbSNP <- NULL
+    var_data$noncoding <- NULL
+    write_component_files(output_dir, design_name, var_data, "variants")
 
-  if (!isEmpty(var_data_cds)) {
-    write.table(var_data_cds, file = file.path(
-      output_dir, paste0(design_name, "_cds_annotations_1based.csv")),
-      quote = F, sep = ",", row.names = F, col.names = T)
+    if (!isEmpty(var_data_cds)) {
+      write.table(var_data_cds, file = file.path(
+        output_dir, paste0(design_name, "_cds_annotations_1based.csv")),
+        quote = F, sep = ",", row.names = F, col.names = T)
 
-    cds <- cdsBy(txdb, by = "tx", use.names = T)
-    cds <- cds[names(cds) %in% var_data_cds$tx_id]
-    cds <- restrict(cds, start = start(chrom_relative), end = end(chrom_relative), use.names = T)
-    cds <- unlist(cds, use.names = T)
-    cds_relative <- pmapToTranscripts(cds, chrom_relative)
-    cds$start_relative <- start(cds_relative)
-    cds$end_relative <- end(cds_relative)
-    cds$row_names <- names(cds)
-    names(cds) <- NULL
-    cds_dt <- as.data.frame(cds)
-    write.table(cds_dt, file = file.path(
-      output_dir, paste0(design_name, "_cds_1based.csv")),
-      quote = F, sep = ",", row.names = F, col.names = T)
+      # Potentially unused code - TODO delete it?
+      # unique_tx_ids <- unique(var_data_cds$tx_id)
+      # if (length(unique_tx_ids) > 0) {
+      #   cds <- suppressWarnings(cdsBy(txdb, by = "tx", use.names = T))
+      #   cds <- cds[names(cds) %in% unique_tx_ids]
+      #   cds <- suppressWarnings(restrict(cds, start = start(large_window), end = end(large_window), keep.all.ranges = TRUE))
+      #   cds <- unlist(cds, use.names = T)
+      #   cds <- cds[width(cds) > 0]
+      #
+      #   if (length(cds) > 0) {
+      #     cds_on_large_window <- pmapToTranscripts(cds, large_window)
+      #     write_genbank_custom(
+      #       locus_name = as.character(large_window),
+      #       gseq = large_window_seq,
+      #       cds_on_tx = ranges(cds_on_large_window),
+      #       aa_cds_seq = AAString(""), # Placeholder for AA sequence
+      #       organism_name = organism(genome),
+      #       output_file = file.path(output_dir, paste0(design_name, "_cds.gbk")))
+      #   }
+      #}
+    }
 
-    write_genbank_custom(
-      paste0(chrom_relative),
-      chrom_relative_seq,
-      cds,
-      NULL, # TODO fix this amino acids annotation
-      organism(genome),
-      file.path(output_dir, paste0(design_name, "_cds.gbk")))
-  }
+    if (!isEmpty(var_data_dbSNP)) {
+      write.table(var_data_dbSNP, file = file.path(
+        output_dir, paste0(design_name, "_dbSNP_annotations_1based.csv")),
+        quote = F, sep = ",", row.names = F, col.names = T)
+    }
 
-  if (!isEmpty(var_data_dbSNP)) {
-    write.table(var_data_dbSNP, file = file.path(
-      output_dir, paste0(design_name, "_dbSNP_annotations_1based.csv")),
-      quote = F, sep = ",", row.names = F, col.names = T)
-  }
-
-  if (!isEmpty(var_data_noncoding)) {
-    write.table(var_data_noncoding, file = file.path(
-      output_dir, paste0(design_name, "_noncoding_annotations_1based.csv")),
-      quote = F, sep = ",", row.names = F, col.names = T)
+    if (!isEmpty(var_data_noncoding)) {
+      write.table(var_data_noncoding, file = file.path(
+        output_dir, paste0(design_name, "_noncoding_annotations_1based.csv")),
+        quote = F, sep = ",", row.names = F, col.names = T)
+    }
   }
 }

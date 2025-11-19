@@ -1,15 +1,29 @@
-translate_safe <- function(dna_string_set) {
-  af <- alphabetFrequency(dna_string_set, baseOnly = FALSE)[, 5:18]
-  ambig <- if (!is.array(af)) {
-    sum(af) > 0
+# translate_safe <- function(dna_string_set) {
+#   af <- alphabetFrequency(dna_string_set, baseOnly = FALSE)[, 5:18]
+#   ambig <- if (!is.array(af)) {
+#     sum(af) > 0
+#   } else {
+#     rowSums(af) > 0
+#   }
+#   trans <- suppressWarnings(Biostrings::translate(dna_string_set[!ambig]))
+#   final <- rep("NA", length(dna_string_set))
+#   final[!ambig] <- as.character(trans)
+#   final
+# }
+
+translate_safe <- function(dna_string) {
+  af <- alphabetFrequency(dna_string, baseOnly = FALSE)[5:18]
+  if (sum(af) > 0) {
+    "NA"
   } else {
-    rowSums(af) > 0
+    suppressWarnings(Biostrings::translate(dna_string))
   }
-  trans <- suppressWarnings(Biostrings::translate(dna_string_set[!ambig]))
-  final <- rep("NA", length(dna_string_set))
-  final[!ambig] <- as.character(trans)
-  final
 }
+
+translate_robust <- function(dna_string) {
+  suppressWarnings(Biostrings::translate(dna_string, if.fuzzy.codon = "solve"))
+}
+
 
 # locus_name = mutation_name
 # gseq = genomic_seq[[1]]
@@ -330,25 +344,45 @@ melting_temp_vec <- function(x, Na = 50) {
 
 gc_fract <- function(x) letterFrequency(x, letters = "CG", as.prob = TRUE)[, 1]
 
-design_probes <- function(s, template_range,
+#' Design Probes on a Sequence and Map them to Genomic Coordinates
+#'
+#' This function generates candidate probes on a given DNA sequence `s`, filters
+#' them by melting temperature, and then uses a coordinate map to accurately
+
+#' translate their positions back to the original genomic coordinates. This
+#' approach correctly handles cases where `s` contains indels relative to the
+#' original genomic sequence.
+#'
+#' @param s A DNAString object representing the sequence to design probes on.
+#' @param genomic_context A GRanges object of length 1 representing the original
+#'   genomic region from which `s` was derived.
+#' @param coordinate_map A GRanges object created by `map_variants`, which describes
+#'   the relationship between coordinates on `s` and `genomic_context`.
+#' @param variants_genomic A GRanges object of the variants that were injected to
+#'   create `s`. This is used by the mapping function to resolve probes that
+#'   fall entirely within a variant.
+#' @param tmin The minimum desired melting temperature.
+#' @param tmax The maximum desired melting temperature.
+#' @param len_min The minimum probe length.
+#' @param len_max The maximum probe length.
+#' @return A GRanges object of valid probes with genomic coordinates and metadata.
+#'
+design_probes <- function(s, genomic_context, coordinate_map, variants_genomic,
                           tmin = 59, tmax = 61, len_min = 20, len_max = 25) {
-  # 1. Generate all possible probe ranges in a vectorized way
+  # 1. Generate all possible probe ranges on the input sequence `s`
   all_ranges <- lapply(len_min:len_max, function(len) {
-    starts <- 1:(nchar(s) - len + 1)
+    starts <- 1:(length(s) - len + 1)
     IRanges(start = starts, width = len)
   })
   probe_ranges <- unlist(IRangesList(all_ranges))
 
-  # 2. Create views on the DNAString to get the probe sequences
+  # 2. Extract sequences and calculate melting temperatures
   probe_views <- Views(s, probe_ranges)
   probes_ss <- methods::as(probe_views, "DNAStringSet")
-
-  # 3. Calculate melting temperatures for all probes at once
   tms <- melting_temp_vec(probes_ss)
 
-  # 4. Filter probes based on melting temperature
+  # 3. Filter probes based on melting temperature
   keep_indices <- which(tms >= tmin & tms <= tmax)
-
   if (length(keep_indices) == 0) {
     return(GRanges())
   }
@@ -357,10 +391,19 @@ design_probes <- function(s, template_range,
   filtered_ranges <- probe_ranges[keep_indices]
   filtered_tms <- tms[keep_indices]
 
-  # 5. map to genomic coords
-  final_probes <- pmapFromTranscripts(filtered_ranges, template_range)
+  # 4. Map filtered probe ranges from sequence coordinates to genomic coordinates
+  # Create a temporary GRanges object for probes relative to sequence `s`
+  probes_on_s <- GRanges("target_seq", ranges = filtered_ranges)
 
-  # 6. Add metadata to the final GRanges object
+  # Use the robust mapping function (originally for guides) to get genomic coordinates
+  final_probes <- remap_target_to_genomic(
+    target = probes_on_s,
+    coordinate_map = coordinate_map,
+    window_genomic = genomic_context,
+    variants_genomic = variants_genomic)
+
+  # The remap_target_to_genomic function discards metadata, so we re-attach it.
+  # The order is preserved.
   final_probes$ALT <- as.character(filtered_probes_ss)
   final_probes$length <- width(filtered_probes_ss)
   final_probes$Tm <- filtered_tms
@@ -369,27 +412,70 @@ design_probes <- function(s, template_range,
 }
 
 select_probes <- function(muts_to_cover, candidates, temp_name) {
-  these_probes <- GRanges()
-  strand(muts_to_cover) <- "*"
+  if (length(muts_to_cover) == 0 || nrow(candidates) == 0) {
+    return(data.frame())
+  }
 
-  for (k in seq_along(muts_to_cover)) {
-    o <- findOverlaps(candidates, muts_to_cover)
-    if (length(S4Vectors::queryHits(o)) == 0) {
-      warning("Could not design probes for all of the mutations for ",
-              temp_name, " and mutations ", toString(muts_to_cover))
-      return(GRanges())
+  # Keep track of mutations and candidates that are still in play
+  muts_remaining <- muts_to_cover
+  candidates_remaining <- candidates
+  selected_probes_list <- list()
+
+  # --- Greedy Selection Loop ---
+  while (length(muts_remaining) > 0) {
+    # Get the names of mutations we still need to cover
+    mut_names <- names(muts_remaining)
+
+    # 1. Calculate overlaps using string matching
+    # For each candidate probe, count how many remaining mutations it covers.
+    # We create a matrix where rows are probes, columns are mutations,
+    # and values are TRUE/FALSE for coverage. Then, we sum by row.
+    # 'fixed = TRUE' makes grepl faster as it does simple string matching.
+    overlap_matrix <- sapply(
+      mut_names, grepl, candidates_remaining$coords, fixed = TRUE)
+
+    # If the result is a vector (only one mut left), convert it to a matrix
+    if (is.vector(overlap_matrix)) {
+      overlap_matrix <- matrix(overlap_matrix, ncol = 1)
     }
-    o_count <- table(S4Vectors::queryHits(o))
-    o_count_ <- rep(0, length(candidates))
-    o_count_[as.numeric(names(o_count))] <- o_count
-    best_probe <- order(o_count_, candidates$GC, decreasing = T)[1]
-    these_probes <- c(these_probes, candidates[best_probe])
-    candidates <- candidates[-best_probe]
-    muts_to_cover <- muts_to_cover[- S4Vectors::subjectHits(o)[
-      S4Vectors::queryHits(o) == best_probe]]
-    if (isEmpty(muts_to_cover)) {
+    overlap_counts <- rowSums(overlap_matrix)
+
+    # Check if any remaining probe can cover any remaining mutation
+    if (max(overlap_counts) == 0) {
+      warning("Could not design probes for all mutations for ", temp_name,
+              ". Uncovered mutations: ", toString(names(muts_remaining)))
+      break # Exit the loop, will return probes found so far
+    }
+
+    # 2. Find the best probe
+    # Order by the number of mutations covered (desc), then by GC content (desc)
+    best_probe_idx <- order(overlap_counts, candidates_remaining$GC, decreasing = TRUE)[1]
+
+    # 3. Add the best probe to our results
+    best_probe <- candidates_remaining[best_probe_idx, ]
+    selected_probes_list[[length(selected_probes_list) + 1]] <- best_probe
+
+    # 4. Update the set of remaining mutations
+    # Find which mutations were covered by the selected probe
+    # We can reuse the overlap_matrix row for the best probe
+    covered_muts_mask <- overlap_matrix[best_probe_idx, ]
+    muts_remaining <- muts_remaining[!covered_muts_mask]
+    candidates_remaining <- candidates_remaining[-best_probe_idx, ]
+
+    # Safety break: if candidates run out but mutations remain
+    if (nrow(candidates_remaining) == 0 && length(muts_remaining) > 0) {
+      warning("Ran out of candidate probes for ", temp_name,
+              ". Uncovered mutations: ", toString(names(muts_remaining)))
       break
     }
   }
-  these_probes
+
+  # --- Finalize and Return ---
+  # Combine the list of selected probes into a single data.frame
+  if (length(selected_probes_list) > 0) {
+    return(do.call(rbind, selected_probes_list))
+  } else {
+    # Return an empty data.frame with the same structure as candidates
+    return(candidates[0, ])
+  }
 }

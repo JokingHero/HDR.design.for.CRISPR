@@ -1,67 +1,17 @@
-#' This new helper function abstracts the creation of a single template and its probes.
-#' It will be used inside the switch statement to reduce code duplication.
-#' @keywords internal
-#'
-create_template_and_probes <- function(muts,
-                                       guide_name,
-                                       template_range,
-                                       template_ref,
-                                       design_name,
-                                       do_probes,
-                                       probe_params){
-  muts_on_temp <- pmapToTranscripts(muts$mutations, template_range)
-  # Its very important to have IRanges for replacement in replaceAt
-  # 0 width ranges or numeric vector is an insertion instead
-  mutated_seq <- replaceAt(
-    template_ref, at = IRanges(start(muts_on_temp), width = 1),
-    value = DNAStringSet(muts$mutations$ALT))
-  template_range$REF <- NULL
-  template_range$ALT <- as.character(mutated_seq)
-  template_range$pam_disrupted <- muts$pam_disrupted_count
-  template_range$guide_disrupted <- muts$guide_disrupted_count
-  template_range$cadd <- muts$total_cadd
-  template_range$overlaps_noncoding <- muts$any_overlaps_noncoding
-  template_range$snp_quality <- -1 * muts$total_compatibility_score
-
-  # Create a unique name for the template based on the guide and mutations
-  temp_name <- paste0("Template_", guide_name, "_Mut_",
-                      paste0(names(muts$mutations), collapse = "; "))
-  if (length(template_range) > 0) {
-    names(template_range) <- temp_name
-  }
-
-  hdr_probes <- GRanges()
-  if (do_probes) {
-    # design_probes takes a series of arguments, we use do.call to pass them as a list
-    candidates <- do.call(design_probes, c(list(
-      s = mutated_seq,
-      template_range = template_range),
-      probe_params))
-
-    # Select the best probes to cover the introduced mutations
-    hdr_probes <- select_probes(muts$mutations, candidates, temp_name)
-    if (length(hdr_probes) > 0) {
-      names(hdr_probes) <- paste0("HDR probe ", seq_along(hdr_probes), " for ", temp_name)
-    }
-  }
-
-  list(template = template_range, probes = hdr_probes)
-}
-
 #' @title Design HDR Repair Templates for CRISPR
 #'
 #' @description A comprehensive function to design HDR repair templates. It can generate templates
 #' using different strategies: finding one optimal template for each guide, finding one optimal
 #' template for all guides, or generating all possible template combinations.
 #'
-#' @param design_name A short name for this mutation, e.g., "tyr82cys".0,
+#' @param design_name A short name for this set of mutations, e.g., "tyr82cys".0,
 #' @param chrom Chromosome of the variant to correct. e.g. chr1
-#' @param variant_start Position on the chromosome for the variant (its on + strand)
-#' @param variant_end Position end of the variant on the chromosome
-#' @param REF The original base on the genome, e.g., "A".
-#' @param ALT The desired mutated base, e.g., "G".
-#' @param ALT_on_guides Guides should match your target cell sequences. Select false when targetting wild type.
-#' @param ALT_on_templates This should match your desired outcome. Select true when correcting alt variant.
+#' @param variant_start Position on the chromosome for the variants (its on + strand)
+#' @param variant_end Position ends of the variants on the chromosome
+#' @param REF The original bases on the genome, e.g., "A".
+#' @param ALT The desired mutated bases, e.g., "G".
+#' @param ALT_on_guides A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.
+#' @param ALT_on_templates A vector of T/F for each variant. This should match your desired outcome. Select true when correcting alt variant.
 #' @param output_dir Path to the directory where output files will be saved.
 #' @param annotation File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with `AnnotationDbi::loadDb`.
 #' @param genome A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.
@@ -73,11 +23,9 @@ create_template_and_probes <- function(muts,
 #' }
 #' @param maximum_mutations_per_template The maximum number of synonymous SNPs to introduce per repair template.
 #' @param filter_to_guide Optional. A 20bp character string of a specific guide sequence. If provided, the design process will be restricted to only this guide.
-#' @param guide_distance Window around the mutation to search for guides (default: 27).
-#' @param allowed_positions_upstream A vector of positions upstream to the variant to consider for introducing synonymous SNPs (default: 1:10).
-#' @param allowed_positions_downstream A vector of positions downstream to the variant to consider for introducing synonymous SNPs (default: 1:10).
-#' @param template_upstream How many bp upstream of the mutation to include in the repair template (default: 59).
-#' @param template_downstream How many bp downstream of the mutation to include in the repair template (default: 61).
+#' @param cut_distance_max Window around the variants to search for cut of the guides (default: 30).
+#' @param template_size Size of the repair template (default: 120).
+#' @param template_hr_arm_size Size of the repair template (default: 30).
 #' @param seed An integer for setting the random seed to ensure reproducibility.
 #' @param intron_bp Number of intronic bases near splice sites to exclude from synonymous SNPs (default: 6).
 #' @param exon_bp Number of exonic bases near splice sites to exclude from synonymous SNPs (default: 3).
@@ -108,11 +56,9 @@ design_hdr <- function(
     strategy,
     maximum_mutations_per_template = 3,
     filter_to_guide = "",
-    guide_distance = 10 + 17,
-    allowed_positions_upstream = 1:10,
-    allowed_positions_downstream = 1:10,
-    template_upstream = 59,
-    template_downstream = 61,
+    cut_distance_max = 30,
+    template_size = 120,
+    template_hr_arm_size = 30,
     seed = 42,
     intron_bp = 6,
     exon_bp = 3,
@@ -127,35 +73,29 @@ design_hdr <- function(
 ) {
   strategy <- match.arg(strategy, c("optimal_per_guide", "optimal_for_all", "all_per_guide"))
   set.seed(seed)
-  variant_genomic <- GRanges(seqnames = chrom,
+  variants_genomic <- GRanges(seqnames = chrom,
                              ranges = IRanges(start = variant_start,
                                               end = variant_end),
                              strand = "+",
                              REF = REF, ALT = ALT)
+  variants_genomic <- normalize_variants(variants_genomic, genome)
+  effective_ts <- template_size - 2 * template_hr_arm_size
+  if (width(range(variants_genomic)) > effective_ts) {
+    stop("Your variants are spaced too wide for this template size.")
+  }
+
   txdb <- if (tools::file_ext(annotation) %in% c("gff3", "gtf")) {
     suppressWarnings(txdbmaker::makeTxDbFromGFF(annotation))
   } else {
     suppressWarnings(AnnotationDbi::loadDb(annotation))
   }
 
-  message("Preparing candidate synonymous mutations...")
-  var_data <- prepare_candidate_snps(
-    annotation, txdb, genome,
-    variant_genomic, allowed_positions_upstream, allowed_positions_downstream,
-    intron_bp, exon_bp, clinvar, snps, cadd,
-    alphagenome_key, python_exec)
-
-  if (length(var_data) == 0) {
-    stop("No candidate synonymous SNPs were found in the specified regions.
-         Consider expanding 'allowed positions upstream/downstream' or checking the annotation.",
-         call. = FALSE)
-  }
-
   message("Finding and scoring guides...")
-  guides <- get_guides_and_scores_refactored(
-    variant_genomic, design_name, guide_distance, genome, ALT_on_guides, score_efficiency)
+  guides <- get_guides_and_scores(
+    variants_genomic[ALT_on_guides], design_name,
+    cut_distance_max, genome, any(ALT_on_guides), score_efficiency)
   if (length(guides) == 0) {
-    stop(paste("No suitable guides were found within the", guide_distance,
+    stop(paste("No suitable guides were found within the", cut_distance_max,
                "bp window around the variant."), call. = FALSE)
   }
 
@@ -169,20 +109,34 @@ design_hdr <- function(
   }
   pams <- resize(flank(guides, width = 3, start = FALSE), width = 2, fix = "end")
 
+
+  message("Preparing candidate synonymous mutations...")
+  var_data <- prepare_candidate_snps(
+    annotation, txdb, genome,
+    variants_genomic, allowed_positions_upstream, allowed_positions_downstream,
+    intron_bp, exon_bp, clinvar, snps, cadd,
+    alphagenome_key, python_exec)
+
+  if (length(var_data) == 0) {
+    stop("No candidate synonymous SNPs were found in the specified regions.
+         Consider resizing template size and homology arms size or checking the annotation.",
+         call. = FALSE)
+  }
+
   message(paste("Generating templates with strategy:", strategy))
   repair_template <- GRanges()
   probes_ <- GRanges()
-  template_range <- promoters(variant_genomic,
+  template_range <- promoters(variants_genomic,
                               upstream = template_upstream,
                               downstream = template_downstream)
   strand(template_range) <- "+"
   template_ref <- getSeq(genome, template_range)[[1]]
-  variant_temp <- pmapToTranscripts(variant_genomic, template_range)
+  variant_temp <- pmapToTranscripts(variants_genomic, template_range)
   template_alt <- replaceAt(
     template_ref, at = ranges(variant_temp),
-    value = DNAStringSet(variant_genomic$ALT))
+    value = DNAStringSet(variants_genomic$ALT))
   variant_with_allowed <- promoters(
-    variant_genomic,
+    variants_genomic,
     upstream = max(allowed_positions_upstream),
     downstream = max(allowed_positions_downstream))
 
@@ -229,7 +183,7 @@ design_hdr <- function(
                if (mpt == 0) {
                  # This creates a "muts" object with no mutations but correct structure
                  muts <- list(
-                   mutations = variant_genomic,
+                   mutations = variants_genomic,
                    pam_disrupted_count = 0,
                    guide_disrupted_count = 0,
                    total_cadd = 0,
@@ -293,7 +247,7 @@ design_hdr <- function(
     # no SNPs and no correction of the mutation
     nhej_probes <- design_probes(if (ALT_on_templates) template_ref else template_alt, template_range,
                                  len_min = 19, len_max = 25, tmin = 50, tmax = 65)
-    nhej_probes <- select_probes(variant_genomic, nhej_probes, "NHEJ origin mutation probe")
+    nhej_probes <- select_probes(variants_genomic, nhej_probes, "NHEJ origin mutation probe")
     if (length(nhej_probes) > 0) {
       names(nhej_probes) <- paste0("NHEJ probe ", seq_along(nhej_probes))
     }
@@ -313,7 +267,7 @@ design_hdr <- function(
   message("Exporting results...")
   export_design_results(
     output_dir, design_name,
-    variant_genomic, var_data, guides, repair_template,
+    variants_genomic, var_data, guides, repair_template,
     genome, txdb,
     primers = primers, probes_ = probes_,
     score_efficiency = score_efficiency,

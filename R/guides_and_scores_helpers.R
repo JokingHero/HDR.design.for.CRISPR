@@ -1,4 +1,3 @@
-#' Safely apply a scoring function to a single sequence
 #' @param sequence A character string representing a DNA sequence.
 #' @param score_fun A scoring function that takes a sequence and returns a
 #' list/object with a 'score' element.
@@ -16,9 +15,10 @@ safely_score_sequence <- function(sequence, score_fun) {
 #' Helper function to find, score, and format guides for one strand
 #' @keywords internal
 process_strand <- function(
-    mutated_seq, window_genomic, pam_pattern, strand_char, scorers, score_efficiency) {
+    mutated_seq, pam_pattern, strand_char, scorers, score_efficiency) {
   is_reverse <- strand_char == "-"
-  pam_locs <- IRanges(matchPattern(DNAString(pam_pattern), mutated_seq))
+  pam_locs <- IRanges(
+    matchPattern(DNAString(pam_pattern), mutated_seq, fixed = FALSE))
   if (length(pam_locs) == 0) return(GRanges())
 
   # This window is dependent on the outer function (35bp of extra for scorers)
@@ -26,14 +26,27 @@ process_strand <- function(
   pam_locs <- pam_locs[pam_locs %over% valid_window]
   if (length(pam_locs) == 0) return(GRanges())
 
-  guide_locs_20bp <- flank(pam_locs + 1, width = 20, start = !is_reverse)
+  # Define the full 23bp protospacer + PAM region
+  # For NGG (+ strand), the protospacer is upstream (5') of the PAM.
+  # For CCN (- strand), the protospacer is downstream (3' on the + strand).
+  protospacer_pam_locs <- if (!is_reverse) {
+    resize(pam_locs, width = 23, fix = "end")
+  } else {
+    resize(pam_locs, width = 23, fix = "start")
+  }
+
+  guide_locs_20bp <- flank(pam_locs, width = 20, start = !is_reverse)
   guide_seqs_20bp <- extractAt(mutated_seq, guide_locs_20bp)
   if (is_reverse) {
     guide_seqs_20bp <- reverseComplement(guide_seqs_20bp)
   }
-  guides_gr <- pmapFromTranscripts(guide_locs_20bp, window_genomic)
+  guides_gr <-  GRanges(
+    seqnames = "target_seq",
+    ranges = protospacer_pam_locs,
+    strand = strand_char)
   strand(guides_gr) <- strand_char
   guides_gr$original <- as.character(guide_seqs_20bp)
+  guides_gr$with_pam <- as.character(extractAt(mutated_seq, protospacer_pam_locs))
 
   if (score_efficiency) {
     for (scorer_name in names(scorers)) {
@@ -69,21 +82,30 @@ process_strand <- function(
 #'         (for successfully run algorithms), and a final aggregated rank.
 #' @keywords internal
 #'
-get_guides_and_scores_refactored <- function(
-    variant_genomic, design_name, guide_distance, genome,
-    ALT_on_guides,
+get_guides_and_scores <- function(
+    variants_genomic, design_name, cut_distance_max, genome,
+    any_ALT_on_guides,
     score_efficiency = TRUE) {
-  window_width <- guide_distance * 2 + 1 + 35 * 2 # 35bp is guide score length padding
-  window_genomic <- resize(variant_genomic, width = window_width, fix = "center")
-  genomic_seq <- getSeq(genome, window_genomic)[[1]]
+  window_width <- width(range(variants_genomic)) +
+    (cut_distance_max + 23 - 6) * 2 + 1 + 35 * 2 # 35bp is guide score length padding
+  window_genomic <- resize(range(variants_genomic), width = window_width, fix = "center")
+  genomic_seq <- suppressWarnings(getSeq(genome, window_genomic))[[1]]
 
-  variant_in_window <- pmapToTranscripts(variant_genomic, window_genomic)
-  mutated_seq <- if (ALT_on_guides) {
+  variants_in_window <- pmapToTranscripts(variants_genomic, window_genomic)
+  mcols(variants_in_window) <- mcols(variants_genomic)
+  names(variants_in_window) <- names(variants_genomic)
+
+  mutated_seq <- if (any_ALT_on_guides) {
     replaceAt(genomic_seq,
-              at = ranges(variant_in_window),
-              value = DNAStringSet(variant_genomic$ALT))
+              at = ranges(variants_in_window),
+              value = DNAStringSet(variants_genomic$ALT))
+  } else { genomic_seq }
+  coordinate_map <- if (any_ALT_on_guides) {
+    build_variant_layout(variants_in_window, nchar(genomic_seq))
   } else {
-    genomic_seq
+    GRanges("target_seq", IRanges(1, nchar(genomic_seq)),
+            source = "genomic", origin_id = "genomic",
+            origin_start = 1, origin_end = nchar(genomic_seq))
   }
 
   scorers <- list(
@@ -146,13 +168,14 @@ get_guides_and_scores_refactored <- function(
     )
   )
 
-  fwd_guides <- process_strand(mutated_seq, window_genomic, "GG", "+", scorers, score_efficiency)
-  rve_guides <- process_strand(mutated_seq, window_genomic, "CC", "-", scorers, score_efficiency)
+  fwd_guides <- process_strand(mutated_seq, "NGG", "+", scorers, score_efficiency)
+  rve_guides <- process_strand(mutated_seq, "CCN", "-", scorers, score_efficiency)
   guides <- c(fwd_guides, rve_guides)
   if (length(guides) == 0) {
     # Return an empty GRanges with correct columns if no guides are found
     empty_gr <- GRanges()
-    mcols(empty_gr) <- data.frame(original = character(), rank_by_scores = numeric())
+    mcols(empty_gr) <- data.frame(
+      original = character(), coords = character(), rank_by_scores = numeric())
     if (score_efficiency) {
       for (scorer_name in names(scorers)) {
         mcols(empty_gr)[[scorer_name]] <- numeric()
@@ -161,8 +184,11 @@ get_guides_and_scores_refactored <- function(
     return(empty_gr)
   }
 
+  guides <- remap_target_to_genomic(
+    guides, coordinate_map, window_genomic, variants_genomic)
+
   if (score_efficiency) {
-    score_cols <- mcols(guides)[, names(scorers), drop = FALSE]
+    score_cols <- guides[, names(scorers), drop = FALSE]
     successful_scorers <- names(which(sapply(score_cols, function(x) !all(is.na(x)))))
 
     if (length(successful_scorers) > 0) {
