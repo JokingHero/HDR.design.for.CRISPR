@@ -64,8 +64,8 @@ def score_variants(api_key, input_csv_path, species, output):
     selected_scorers = [
         all_scorers[key] for key in all_scorers
         if key.lower() in [
-            'splice_sites', 'splice_site_usage', #'splice_junctions',
-            'atac', 'dnase'
+            'splice_sites', 'splice_site_usage'#, 'splice_junctions',
+            # 'atac', 'dnase'
         ]
     ]
     
@@ -90,7 +90,7 @@ def score_variants(api_key, input_csv_path, species, output):
         )
         
         # The interval is the sequence length around the variant to be analyzed
-        sequence_length = '16KB'  # @param ["16KB", "100KB", "500KB", "1MB"] { type:"string" }
+        sequence_length = '1MB'  # @param ["16KB", "100KB", "500KB", "1MB"] { type:"string" }
         sequence_length = dna_client.SUPPORTED_SEQUENCE_LENGTHS[
             f'SEQUENCE_LENGTH_{sequence_length}'
         ]

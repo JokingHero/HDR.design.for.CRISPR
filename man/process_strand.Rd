@@ -2,18 +2,22 @@
 % Please edit documentation in R/guides_and_scores_helpers.R
 \name{process_strand}
 \alias{process_strand}
-\title{Helper function to find, score, and format guides for one strand}
+\title{Helper function to find, score, and format guides for one strand
+This is hardcoded for Cas9 only}
 \usage{
 process_strand(
   mutated_seq,
-  window_genomic,
   pam_pattern,
   strand_char,
   scorers,
-  score_efficiency
+  score_efficiency,
+  padding_score = 35,
+  offset_body = 17,
+  offset_pam = 6
 )
 }
 \description{
 Helper function to find, score, and format guides for one strand
+This is hardcoded for Cas9 only
 }
 \keyword{internal}

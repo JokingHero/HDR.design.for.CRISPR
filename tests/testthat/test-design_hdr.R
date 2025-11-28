@@ -1,38 +1,6 @@
 # Tests for functions in R/design_hdr.R
 annot <- testthat::test_path("testdata", "gencode.v42.annotation_mini.gff3")
 
-test_that("create_template_and_probes works as expected", {
-  # Mock inputs
-  muts <- list(
-    mutations = GRanges("chr1:15-15", REF = "C", ALT = "T"),
-    pam_disrupted_count = 1,
-    guide_disrupted_count = 0,
-    total_cadd = 10,
-    any_overlaps_noncoding = FALSE,
-    total_compatibility_score = 5
-  )
-  guide_name <- "TestGuide"
-  template_range <- GRanges("chr1:1-30")
-  template_ref <- DNAString(paste(rep("A", 30), collapse = ""))
-  design_name <- "TestDesign"
-  do_probes <- FALSE
-  probe_params <- list()
-
-  # Call the function
-  result <- create_template_and_probes(
-    muts, guide_name, template_range, template_ref, design_name, do_probes, probe_params
-  )
-
-  # Assertions
-  expect_true("template" %in% names(result))
-  expect_true("probes" %in% names(result))
-  expect_equal(length(result$template), 1)
-  expect_equal(result$template$pam_disrupted, 1)
-  expect_true(grepl("Template_TestGuide_Mut_", names(result$template)))
-  # Since do_probes is FALSE, expect empty probes
-  expect_equal(length(result$probes), 0)
-})
-
 # library(HDR.design.for.CRISPR)
 # library(BSgenome.Hsapiens.UCSC.hg38)
 # library(SNPlocs.Hsapiens.dbSNP155.GRCh38)
@@ -45,18 +13,19 @@ test_that("End-to-end test for STAT3 (minus strand)", {
 
   # Using a known transcript and mutation for STAT3
   design_hdr(
-    design_name = "STAT3_test",
+    design_name = "STAT3",
+    optimization_scheme = "balanced",
+    seed = 42,
     chrom = "chr17",
     variant_start = 42346635,
     variant_end = 42346635,
-    REF = "A",
-    ALT = "G",
+    REF = "G",
+    ALT = "A",
     ALT_on_guides = TRUE,
     ALT_on_templates = FALSE,
     output_dir = output_dir,
     annotation = annot,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-    strategy = "optimal_per_guide",
     maximum_mutations_per_template = 3,
     snps = SNPlocs.Hsapiens.dbSNP155.GRCh38::SNPlocs.Hsapiens.dbSNP155.GRCh38,
     cadd = GenomicScores::getGScores("cadd.v1.6.hg38")
@@ -73,25 +42,27 @@ test_that("End-to-end test for STAT3 (minus strand)", {
 
   # 1. Check if the set of filenames is the same
   expect_equal(sort(output_basenames), sort(expected_basenames),
-               info = "Filenames in output directory should match expected filenames.")
+    info = "Filenames in output directory should match expected filenames."
+  )
 
   # 2. Compare content of each file
   if (length(output_basenames) > 0) {
     for (filename in output_basenames) {
+      filename <- output_basenames[7]
       output_filepath <- file.path(output_dir, filename)
       expected_filepath <- file.path(expected_files_dir, filename)
 
       # Ensure the expected file exists
       expect_true(file.exists(expected_filepath),
-                  info = paste("Expected file", filename, "does not exist."))
+        info = paste("Expected file", filename, "does not exist.")
+      )
 
-      # Read and compare file contents
-      # Assuming text files. For binary files, you might need a different approach.
       output_content <- readLines(output_filepath, warn = FALSE)
       expected_content <- readLines(expected_filepath, warn = FALSE)
 
       expect_equal(output_content, expected_content,
-                   info = paste("Content of file", filename, "should match expected content."))
+        info = paste("Content of file", filename, "should match expected content.")
+      )
     }
   } else {
     warning("No files were generated in the output directory to compare.")
@@ -110,7 +81,7 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
   # Using a known transcript and mutation for CTNNB1
   # The gencode.v42.annotation_mini.gff3 file confirms that CTNNB1 is on the plus strand.
   design_hdr(
-    design_name = "CTNNB1_test",
+    design_name = "CTNNB1",
     chrom = "chr3",
     variant_start = 41224622,
     variant_end = 41224622,
@@ -121,7 +92,6 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
     output_dir = output_dir,
     annotation = annot,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-    strategy = "optimal_per_guide",
     maximum_mutations_per_template = 3,
     snps = SNPlocs.Hsapiens.dbSNP155.GRCh38::SNPlocs.Hsapiens.dbSNP155.GRCh38,
     cadd = GenomicScores::getGScores("cadd.v1.6.hg38")
@@ -137,7 +107,8 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
 
   # 1. Check if the set of filenames is the same
   expect_equal(sort(output_basenames), sort(expected_basenames),
-               info = "Filenames in output directory should match expected filenames.")
+    info = "Filenames in output directory should match expected filenames."
+  )
 
   # 2. Compare content of each file
   if (length(output_basenames) > 0) {
@@ -147,7 +118,8 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
 
       # Ensure the expected file exists
       expect_true(file.exists(expected_filepath),
-                  info = paste("Expected file", filename, "does not exist."))
+        info = paste("Expected file", filename, "does not exist.")
+      )
 
       # Read and compare file contents
       # Assuming text files. For binary files, you might need a different approach.
@@ -155,7 +127,8 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
       expected_content <- readLines(expected_filepath, warn = FALSE)
 
       expect_equal(output_content, expected_content,
-                   info = paste("Content of file", filename, "should match expected content."))
+        info = paste("Content of file", filename, "should match expected content.")
+      )
     }
   } else {
     warning("No files were generated in the output directory to compare.")

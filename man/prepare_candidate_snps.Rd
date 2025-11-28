@@ -5,19 +5,19 @@
 \title{Prepare Candidate Synonymous Mutations}
 \usage{
 prepare_candidate_snps(
+  candidate_snp_map,
   annotation,
   txdb,
   genome,
-  variant_genomic,
-  allowed_positions_upstream,
-  allowed_positions_downstream,
+  variants_genomic_on_ts,
   intron_bp,
   exon_bp,
   clinvar,
   snps,
   cadd,
   alphagenome_key,
-  python_exec
+  python_exec,
+  alphagenome_context
 )
 }
 \description{

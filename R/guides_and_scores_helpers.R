@@ -1,8 +1,10 @@
+#' @title Score the sequence even if potentially failing
 #' @param sequence A character string representing a DNA sequence.
 #' @param score_fun A scoring function that takes a sequence and returns a
 #' list/object with a 'score' element.
 #' @return The score as a numeric value, or NA if an error occurs.
 #' @keywords internal
+#'
 safely_score_sequence <- function(sequence, score_fun) {
   tryCatch({
     score_fun(sequence)
@@ -13,16 +15,35 @@ safely_score_sequence <- function(sequence, score_fun) {
 }
 
 #' Helper function to find, score, and format guides for one strand
+#' This is hardcoded for Cas9 only
 #' @keywords internal
 process_strand <- function(
-    mutated_seq, pam_pattern, strand_char, scorers, score_efficiency) {
+    mutated_seq, pam_pattern, strand_char, scorers, score_efficiency,
+    padding_score = 35, offset_body = 17, offset_pam = 6) {
+    # For Cas9 (default)
+    # 23bp guide - 6bp to cut = 17 and 6bp from PAM/start to cut
   is_reverse <- strand_char == "-"
   pam_locs <- IRanges(
     matchPattern(DNAString(pam_pattern), mutated_seq, fixed = FALSE))
   if (length(pam_locs) == 0) return(GRanges())
 
-  # This window is dependent on the outer function (35bp of extra for scorers)
-  valid_window <- IRanges(start = 36, end = nchar(mutated_seq) - 36)
+  # This window is dependent on the outer function
+  if (!is_reverse) {
+    trim_left  <- padding_score + offset_body
+    trim_right <- padding_score + offset_pam
+  } else {
+    trim_left  <- padding_score + offset_pam
+    trim_right <- padding_score + offset_body
+  }
+  valid_window <- IRanges(
+    start = trim_left + 1,
+    end   = nchar(mutated_seq) - trim_right
+  )
+  # --------------------------------------
+  # 5'----CUT---NGG        5'----CUT---NGG
+  # + 17bp                            -6bp
+  # CCN--CUT---3'             CCN--CUT---3'
+  # + 6bp                            -17bp
   pam_locs <- pam_locs[pam_locs %over% valid_window]
   if (length(pam_locs) == 0) return(GRanges())
 
@@ -70,13 +91,12 @@ process_strand <- function(
 #' designs potential CRISPR guides, and scores them for efficiency. It is designed
 #' to be robust to failures in individual scoring algorithms.
 #'
-#' @param variant_genomic A GRanges object of length 1 representing the variant.
+#' @param variants_genomic A GRanges object of representing the variants.
 #'        Must have an 'ALT' metadata column.
 #' @param design_name A character string for naming the design.
-#' @param guide_distance An integer, the window size (in bp) on each side of the
-#'        variant to search for guides.
+#' @param cut_distance_max An integer.
 #' @param genome A BSgenome object for sequence retrieval.
-#' @param ALT_on_guides whether to put the ALT variant on the guides
+#' @param any_ALT_on_guides whether any ALT variant is on the guides
 #' @param score_efficiency A logical flag. If TRUE, calculate efficiency scores.
 #' @return A GRanges object containing all found guides, their sequences, scores
 #'         (for successfully run algorithms), and a final aggregated rank.

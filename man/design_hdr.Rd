@@ -16,14 +16,12 @@ design_hdr(
   output_dir,
   annotation,
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-  strategy,
+  optimization_scheme = "balanced",
   maximum_mutations_per_template = 3,
   filter_to_guide = "",
-  guide_distance = 10 + 17,
-  allowed_positions_upstream = 1:10,
-  allowed_positions_downstream = 1:10,
-  template_upstream = 59,
-  template_downstream = 61,
+  cut_distance_max = 30,
+  template_size = 120,
+  template_hr_arm_size = 30,
   seed = 42,
   intron_bp = 6,
   exon_bp = 3,
@@ -34,25 +32,26 @@ design_hdr(
   do_probes = TRUE,
   primer3 = "",
   alphagenome_key = "",
+  alphagenome_context = "",
   python_exec = "python3"
 )
 }
 \arguments{
-\item{design_name}{A short name for this mutation, e.g., "tyr82cys".0,}
+\item{design_name}{A short name for this set of mutations, e.g., "tyr82cys".0,}
 
 \item{chrom}{Chromosome of the variant to correct. e.g. chr1}
 
-\item{variant_start}{Position on the chromosome for the variant (its on + strand)}
+\item{variant_start}{Position on the chromosome for the variants (its on + strand)}
 
-\item{variant_end}{Position end of the variant on the chromosome}
+\item{variant_end}{Position ends of the variants on the chromosome}
 
-\item{REF}{The original base on the genome, e.g., "A".}
+\item{REF}{The original bases on the genome, e.g., "A".}
 
-\item{ALT}{The desired mutated base, e.g., "G".}
+\item{ALT}{The desired mutated bases, e.g., "G".}
 
-\item{ALT_on_guides}{Guides should match your target cell sequences. Select false when targetting wild type.}
+\item{ALT_on_guides}{A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.}
 
-\item{ALT_on_templates}{This should match your desired outcome. Select true when correcting alt variant.}
+\item{ALT_on_templates}{A vector of T/F for each variant. This should match your desired outcome. Select true when correcting alt variant.}
 
 \item{output_dir}{Path to the directory where output files will be saved.}
 
@@ -60,26 +59,22 @@ design_hdr(
 
 \item{genome}{A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.}
 
-\item{strategy}{The template generation strategy. Must be one of:
+\item{optimization_scheme}{The optimization scheme for selecting synonymous SNPs. Must be one of:
 \itemize{
-\item \code{"optimal_per_guide"}: (Default) Designs one optimized template for each guide. Templates are optimized by selecting synonymous SNPs to disrupt guides while minimizing other functional impacts.
-\item \code{"optimal_for_all"}: Designs a single optimized template that works best across all identified guides.
-\item \code{"all_per_guide"}: Generates all possible template combinations for each guide, for a range of mutation counts from 0 to \code{maximum_mutations_per_template}.
+\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNP quality.
+\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNPs.
+\item \code{"disruption_first"}: Prioritizes PAM disruption and guide disruption.
 }}
 
 \item{maximum_mutations_per_template}{The maximum number of synonymous SNPs to introduce per repair template.}
 
 \item{filter_to_guide}{Optional. A 20bp character string of a specific guide sequence. If provided, the design process will be restricted to only this guide.}
 
-\item{guide_distance}{Window around the mutation to search for guides (default: 27).}
+\item{cut_distance_max}{Window around the variants to search for cut of the guides (default: 30).}
 
-\item{allowed_positions_upstream}{A vector of positions upstream to the variant to consider for introducing synonymous SNPs (default: 1:10).}
+\item{template_size}{Size of the repair template (default: 120).}
 
-\item{allowed_positions_downstream}{A vector of positions downstream to the variant to consider for introducing synonymous SNPs (default: 1:10).}
-
-\item{template_upstream}{How many bp upstream of the mutation to include in the repair template (default: 59).}
-
-\item{template_downstream}{How many bp downstream of the mutation to include in the repair template (default: 61).}
+\item{template_hr_arm_size}{Size of the repair template (default: 30).}
 
 \item{seed}{An integer for setting the random seed to ensure reproducibility.}
 
@@ -100,6 +95,8 @@ design_hdr(
 \item{primer3}{Optional. Full path to the \code{primer3_core} executable to design PCR primers.}
 
 \item{alphagenome_key}{Your key to the alphagenome service.}
+
+\item{alphagenome_context}{Celltypes for which to filter alphagenome scores.}
 
 \item{python_exec}{path to the python3 that has alphagenome installed.}
 }

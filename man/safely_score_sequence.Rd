@@ -2,7 +2,7 @@
 % Please edit documentation in R/guides_and_scores_helpers.R
 \name{safely_score_sequence}
 \alias{safely_score_sequence}
-\title{Safely apply a scoring function to a single sequence}
+\title{Score the sequence even if potentially failing}
 \usage{
 safely_score_sequence(sequence, score_fun)
 }
@@ -16,6 +16,6 @@ list/object with a 'score' element.}
 The score as a numeric value, or NA if an error occurs.
 }
 \description{
-Safely apply a scoring function to a single sequence
+Score the sequence even if potentially failing
 }
 \keyword{internal}

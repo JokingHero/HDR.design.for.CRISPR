@@ -43,25 +43,31 @@ test_that("is_vcf_invalid correctly identifies non-VCF compliant variants", {
 
   # empty GRanges
   variants <- GRanges(REF = "", ALT = "")
-  expect_equal(length(is_vcf_valid(variants)), 0)
+  expect_equal(length(!is_vcf_invalid(variants)), 0)
 })
 
 test_that("reverse_variants handles variants correctly", {
   # SNP
-  variants <- GRanges("1", IRanges(10, 10, names="v1"), REF="A", ALT="G")
+  variants <- GRanges("1", IRanges(10, 10, names = "v1"), REF = "A", ALT = "G")
   rvariants <- reverse_variants(variants)
-  expect_equal(rvariants,
-               GRanges("1", IRanges(10, 10, names="v1"), REF="G", ALT="A"))
+  expect_equal(
+    rvariants,
+    GRanges("1", IRanges(10, 10, names = "v1"), REF = "G", ALT = "A")
+  )
   # insertion
-  variants <- GRanges("1", IRanges(20, 20, names="v1"), REF="C", ALT="CATG")
+  variants <- GRanges("1", IRanges(20, 20, names = "v1"), REF = "C", ALT = "CATG")
   rvariants <- reverse_variants(variants)
-  expect_equal(rvariants,
-               GRanges("1", IRanges(20, 23, names="v1"), REF="CATG", ALT="C"))
+  expect_equal(
+    rvariants,
+    GRanges("1", IRanges(20, 23, names = "v1"), REF = "CATG", ALT = "C")
+  )
   # deletion
-  variants <- GRanges("1", IRanges(30, 33, names="v1"), REF="GTCA", ALT="G")
+  variants <- GRanges("1", IRanges(30, 33, names = "v1"), REF = "GTCA", ALT = "G")
   rvariants <- reverse_variants(variants)
-  expect_equal(rvariants,
-               GRanges("1", IRanges(30, 30, names="v1"), REF="G", ALT="GTCA"))
+  expect_equal(
+    rvariants,
+    GRanges("1", IRanges(30, 30, names = "v1"), REF = "G", ALT = "GTCA")
+  )
 
   # unsorted mix
   dna_seq <- DNAString("AGCTTAGCTAGCTAGCTTAGCTAGCTAGCTTAGCTAGCTCTAGCTTAGCTAGCT")
@@ -77,16 +83,18 @@ test_that("reverse_variants handles variants correctly", {
   expect_error(reverse_variants(variants))
   names(variants) <- c("snv", "ins", "del")
   mut_seq <- replaceAt(dna_seq,
-                       at = ranges(variants),
-                       value = DNAStringSet(variants$ALT))
+    at = ranges(variants),
+    value = DNAStringSet(variants$ALT)
+  )
   rvariants <- reverse_variants(variants)
   dna_seq2 <- replaceAt(mut_seq,
-                        at = ranges(rvariants),
-                        value = DNAStringSet(rvariants$ALT))
+    at = ranges(rvariants),
+    value = DNAStringSet(rvariants$ALT)
+  )
   expect_equal(dna_seq2, dna_seq)
 
   # empty
-  variants <- GRanges(REF=character(), ALT=character())
+  variants <- GRanges(REF = character(), ALT = character())
   rvariants <- reverse_variants(variants)
   expect_s4_class(rvariants, "GRanges")
   expect_equal(length(rvariants), 0)

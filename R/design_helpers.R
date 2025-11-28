@@ -156,7 +156,7 @@ design_primers <- function(
 #'
 write_component_files <- function(
     output_dir, design_name, component, component_name) {
-  if (is(component, "GRanges")) {
+  if (methods::is(component, "GRanges")) {
     component <- as.data.frame(component)
     component$coords <- paste0(
       component$seqnames, ":", component$start, "-", component$end)
@@ -182,15 +182,91 @@ write_component_files <- function(
     quote = FALSE, sep = ",", row.names = FALSE, col.names = TRUE)
 }
 
+#' Calculate Pareto Rank (Skyline)
+#'
+#' Performs non-dominated sorting (Pareto ranking) on a set of candidates.
+#' Rank 1 candidates are not dominated by any other candidate.
+#' Rank 2 candidates are dominated only by Rank 1 candidates, etc.
+#'
+#' @param data A data.frame of metrics.
+#' @param specs A named list where names match data columns, and values are
+#'        1 (Maximize) or -1 (Minimize).
+#' @return An integer vector of ranks.
+#' @keywords internal
+calculate_pareto_rank <- function(data, specs) {
+  n <- nrow(data)
+  if (n == 0) return(integer(0))
+
+  # Normalize data directions so we always Maximize (multiply Minimize cols by -1)
+  # matrix conversion for speed
+  mat <- as.matrix(data[, names(specs)])
+  for (col in names(specs)) {
+    if (specs[[col]] == -1) {
+      mat[, col] <- -mat[, col]
+    }
+  }
+
+  ranks <- rep(NA, n)
+  current_rank <- 1
+  remaining_ids <- seq_len(n)
+
+  while (length(remaining_ids) > 0) {
+    # subset matrix for speed
+    sub_mat <- mat[remaining_ids, , drop = FALSE]
+    n_rem <- length(remaining_ids)
+    is_dominated <- rep(FALSE, n_rem)
+
+    # Compare every item i against every other item j
+    # Optimization: In R, loops are slow, but for N ~ 20-100 (typical templates),
+    # N^2 is trivial (10k ops).
+    # A strictly dominated item is WORSE in at least one dimension
+    # and NO BETTER in any dimension.
+
+    for (i in 1:n_rem) {
+      # We want to see if item i is dominated by ANY item j
+      # If we find one j that dominates i, we stop checking i
+
+      # Vectorized check: Compare row i against all rows
+      # diffs > 0 means i is better
+      # diffs < 0 means i is worse
+      diffs <- t(t(sub_mat) - sub_mat[i, ])
+
+      # i is dominated by j if:
+      # j is never worse than i (min(diff) >= 0) AND
+      # j is strictly better in at least one (max(diff) > 0)
+      # Note: diffs is (j - i). So if j > i, diff > 0.
+
+      # Check if ANY row j dominates i
+      better_or_equal <- rowSums(diffs < 0) == 0 # i is never better than j (j >= i for all cols)
+      strictly_better <- rowSums(diffs > 0) > 0  # j is strictly better in at least one
+
+      if (any(better_or_equal & strictly_better)) {
+        is_dominated[i] <- TRUE
+      }
+    }
+
+    # Assign rank to non-dominated items
+    frontier_indices <- remaining_ids[!is_dominated]
+    ranks[frontier_indices] <- current_rank
+
+    # Remove them for next iteration
+    remaining_ids <- remaining_ids[is_dominated]
+    current_rank <- current_rank + 1
+  }
+
+  return(ranks)
+}
+
 #' Export Design Results
 #' @description Writes all final output files (FASTA, CSV, GFF3, GenBank).
 #' @keywords internal
+#'
 export_design_results <- function(
     output_dir, design_name,
     variants_genomic,
     var_data, guides, repair_template,
     genome, txdb, edit_region,
-    primers, all_probes) {
+    primers, all_probes, optimization_scheme) {
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
   # create large region of 1k BP around the edit window
   large_window <- promoters(
@@ -218,35 +294,96 @@ export_design_results <- function(
   if (length(repair_template) > 0) {
 
     # Ensure columns exist (defaults for sorting safety)
-    if(is.null(repair_template$any_overlaps_noncoding)) repair_template$any_overlaps_noncoding <- FALSE
-    if(is.null(repair_template$pam_disrupted_count)) repair_template$pam_disrupted_count <- 0
-    if(is.null(repair_template$guide_disrupted_count)) repair_template$guide_disrupted_count <- 0
-    if(is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
-    if(is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999 # Lower is better
+    if (is.null(repair_template$any_overlaps_noncoding)) repair_template$any_overlaps_noncoding <- FALSE
+    if (is.null(repair_template$pam_disrupted_count)) repair_template$pam_disrupted_count <- 0
+    if (is.null(repair_template$seed_disrupted_count)) repair_template$seed_disrupted_count <- 0
+    if (is.null(repair_template$total_disruption_count)) repair_template$total_disruption_count <- 0
+    if (is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
+    # Assumption: total_snp_quality_score is the sum/max of safety tiers (Lower is Better)
+    if (is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999
 
+    repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
+
+    # --- BINNING (The "Minimum Viable Edit" Strategy) ---
+
+    # 1. Calculate Disruption Confidence Bin (Lower is Better)
+    # This replaces the abstract "Pareto Rank" with concrete biological tiers.
+    # Bin 1 (Platinum): Guaranteed (PAM disruption >= 1)
+    # Bin 2 (Gold):     High Probability (No PAM, but Seed >= 2)
+    # Bin 3 (Silver):   Probable (No PAM, Seed == 1)
+    # Bin 4 (Bronze):   Low/Fail (Distal only)
+
+    disruption_bin <- rep(4, length(repair_template))
+    disruption_bin[repair_template$seed_disrupted_count >= 1] <- 3
+    disruption_bin[repair_template$seed_disrupted_count >= 2] <- 2
+    disruption_bin[repair_template$pam_disrupted_count >= 1] <- 1
+    repair_template$disruption_bin <- disruption_bin
+
+    # --- HIERARCHICAL SORTING ---
     ordering <- switch(
       optimization_scheme,
+
+      # STRATEGY 1: BALANCED (Recommended)
+      # Logic:
+      # 1. Veto Tier 5 structural risks immediately.
+      # 2. Prioritize Efficacy (Bin 1 > 2 > 3).
+      # 3. Within the same efficacy bin, prioritize Safety (lower quality score).
+      # 4. If efficacy and safety are equal, prioritize Parsimony (fewer SNVs).
       "balanced" = order(
-        repair_template$any_overlaps_noncoding,     # Safety first (False is top)
-        -repair_template$pam_disrupted_count,       # Then PAM disruption (High is top)
-        repair_template$total_snp_quality_score,    # Then quality (Low is top)
-        repair_template$total_cadd),                # Then CADD (Low is top),
-      "safety_first" = order(
-        repair_template$any_overlaps_noncoding,     # Absolute priority: Non-coding
-        repair_template$total_snp_quality_score,    # Priority: Known Benign
-        repair_template$total_cadd,                 # Priority: Low CADD
-        -repair_template$pam_disrupted_count),      # Tie-breaker: Disruption
+        repair_template$any_overlaps_noncoding,    # Hard Safety Constraint
+        repair_template$disruption_bin,            # Primary: Efficacy Confidence
+        repair_template$total_snp_quality_score,   # Secondary: Safety
+        repair_template$n_snvs,                    # Tertiary: Parsimony
+        repair_template$total_cadd                 # Tie-breaker
+      ),
+
+      # STRATEGY 2: DISRUPTION FIRST
+      # Logic: Get the best Disruption Bin possible.
+      # Use Parsimony as the secondary sort (don't care about subtle safety/CADD).
       "disruption_first" = order(
-        -repair_template$pam_disrupted_count,       # Absolute priority: PAM
-        -repair_template$guide_disrupted_count,     # Priority: Total cuts
-        repair_template$any_overlaps_noncoding,     # Then Safety
-        repair_template$total_snp_quality_score),
-      # Default fallback if string doesn't match
-      order(
+        repair_template$disruption_bin,
+        repair_template$n_snvs,
+        repair_template$total_disruption_count     # More cuts is better here
+      ),
+
+      # STRATEGY 3: SAFETY FIRST
+      # Logic: Safety is King. Only consider disruption if safety scores are identical.
+      "safety_first" = order(
         repair_template$any_overlaps_noncoding,
-        -repair_template$pam_disrupted_count,
-        repair_template$total_cadd))
+        repair_template$total_snp_quality_score,
+        repair_template$disruption_bin,
+        repair_template$n_snvs
+      ),
+
+      # Fallback
+      order(repair_template$disruption_bin, repair_template$n_snvs)
+    )
+
     repair_template <- repair_template[ordering]
+
+    # Reorder columns to make the CSV more readable for the user
+    # Add disruption_bin to the output so users understand the sorting
+    priority_cols <- c(
+      "snvs_introduced",
+      "n_snvs",
+      "disruption_bin",
+      "pam_disrupted_count",
+      "seed_disrupted_count",
+      "total_disruption_count",
+      "aln_guide",
+      "aln_template",
+      "any_overlaps_noncoding",
+      "total_cadd",
+      "total_snp_quality_score",
+      "sequence"
+    )
+
+    # Identify columns that actually exist in the object
+    existing_priority <- intersect(priority_cols, names(mcols(repair_template)))
+    remaining_cols <- setdiff(names(mcols(repair_template)), existing_priority)
+
+    # Reconstruct mcols in desired order
+    mcols(repair_template) <- mcols(repair_template)[, c(existing_priority, remaining_cols)]
     write_component_files(output_dir, design_name, repair_template, "templates")
   }
   rownames(all_probes) <- all_probes$names
@@ -278,6 +415,12 @@ export_design_results <- function(
     var_names <- sapply(strsplit(names(var_data), " "), `[[`, 1)
     var_data <- var_data[!duplicated(var_names)]
     names(var_data) <- var_names[!duplicated(var_names)]
+    var_data$guide_name <- NULL
+    var_data$position_in_guide <- NULL
+    var_data$ag_max_score <- NULL
+    var_data$cadd_imputed <- NULL
+    var_data$disruption_tier <- NULL
+    var_data$priority_group <- NULL
     var_data_cds <- as.data.frame(var_data$CDS)
     if (nrow(var_data_cds) > 0) var_data_cds$group_name <- names(var_data)[var_data_cds$group]
     var_data_dbSNP <- as.data.frame(var_data$dbSNP)

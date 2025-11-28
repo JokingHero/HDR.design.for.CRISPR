@@ -7,16 +7,16 @@
 export_design_results(
   output_dir,
   design_name,
-  variant_genomic,
+  variants_genomic,
   var_data,
   guides,
   repair_template,
   genome,
   txdb,
-  primers = GRanges(),
-  probes_ = GRanges(),
-  score_efficiency = FALSE,
-  one_for_all = FALSE
+  edit_region,
+  primers,
+  all_probes,
+  optimization_scheme
 )
 }
 \description{

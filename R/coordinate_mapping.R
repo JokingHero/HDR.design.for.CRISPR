@@ -119,7 +119,7 @@ build_variant_layout <- function(variants_in_window, seq_len) {
 #'
 remap_target_to_genomic <- function(
     target, coordinate_map, window_genomic, variants_genomic) {
-  if (!is(target, "GRanges")) target <- GRanges(target)
+  if (!methods::is(target, "GRanges")) target <- GRanges(target)
 
   # If the input is empty, return an empty data.frame with the expected structure
   if (length(target) == 0) {
@@ -137,7 +137,8 @@ remap_target_to_genomic <- function(
   hits <- findOverlaps(target, coordinate_map)
 
   # Group map hits by the target they overlap
-  map_hits_by_target <- split(subjectHits(hits), queryHits(hits))
+  map_hits_by_target <- split(S4Vectors::subjectHits(hits),
+                              S4Vectors::queryHits(hits))
 
   # Process each target to generate its coordinate string
   results_list <- lapply(seq_along(target), function(i) {

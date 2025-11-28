@@ -8,7 +8,8 @@ annotate_mutations_with_alphagenome(
   all_variants,
   alphagenome_key,
   species,
-  python_exec = "python3"
+  python_exec = "python3",
+  alphagenome_context = ""
 )
 }
 \arguments{

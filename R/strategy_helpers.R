@@ -18,10 +18,13 @@ select_non_overlapping_mutations <- function(gr, N) {
     }
 
     candidate_mut <- gr[i]
+
+    # Check Genomic Overlap
     if (length(findOverlaps(candidate_mut, selected_gr)) > 0) {
       next
     }
 
+    # Check Codon Overlap
     current_cds_df <- candidate_mut$CDS[[1]]
     current_keys <- c()
     has_codon_data <- !is.null(current_cds_df) && nrow(current_cds_df) > 0
@@ -43,52 +46,186 @@ select_non_overlapping_mutations <- function(gr, N) {
 }
 
 #' @title Augment var_data with scoring and priority columns
-#' @description Pre-calculates several columns on the var_data GRanges to
-#'   facilitate the different optimization sorting schemes.
+#' @description Pre-calculates standardized metrics on the var_data GRanges to
+#'   facilitate downstream sorting. Handles missing data (e.g., non-model organisms)
+#'   by imputing neutral defaults.
 #' @param var_data The main GRanges object of candidate SNPs.
-#' @param pam_proximal_threshold An integer defining what `position_in_guide`
-#'   is considered PAM-proximal.
-#' @param benign_cadd_threshold A numeric CADD score below which a variant is
-#'   considered "predicted benign".
-#' @return The augmented var_data GRanges object.
+#' @param optimization_scheme Typically "balanced"
+#' @param benign_cadd_threshold Numeric. CADD score below which a variant is
+#'   considered high-confidence benign. Default 15.
+#' @param ag_threshold Numeric. AlphaGenome magnitude above which a variant
+#'   is considered risky. Default 0.2.
+#' @return The augmented var_data GRanges object with standardized columns:
+#'   `penalty_score`, `disruption_tier`, `safety_tier`, etc.
 #' @keywords internal
+#'
 augment_var_data_with_scores <- function(var_data,
-                                         pam_proximal_threshold = 12,
-                                         benign_cadd_threshold = 5) {
+                                         optimization_scheme = "balanced",
+                                         benign_cadd_threshold = 15,
+                                         ag_threshold = 0.9) {
   if (length(var_data) == 0) return(var_data)
 
-  # --- 1. Standardize Safety/Confidence Metrics ---
-  # dbSNP Priority (lower is better)
-  var_data$dbSNP_priority <- 3 # Default: Unknown
+  # ============================================================================
+  # 1. GUIDE POSITION (Guaranteed Feature)
+  # ============================================================================
+  # Tier	Positions	Disruption Potential	Mechanism
+  # Tier 1	22–23 (PAM)	Lethal (100%)	Binding Check: Without the NGG anchor, Cas9 cannot initiate the search. No binding = no cut.
+  # Tier 2	17–20	Critical (>95%)	R-Loop Initiation: These bases must pair immediately after PAM binding to "nucleate" the RNA:DNA hybrid. A mismatch here usually causes immediate ejection of the complex.
+  # Tier 3	13–16	Severe (70–90%)	The Kinetic Gate: Recent kinetic models identify this region as the primary barrier for conformational activation (HNH domain movement). Mismatches here don't just reduce binding affinity; they physically block the enzyme from transitioning into the "cutting" state.
+  # Tier 4	10–12	Moderate (40–60%)	Seed Extension: Mismatches here destabilize the complex but are often tolerated if the rest of the binding energy is strong (the "Goldilocks" zone).
+  # Tier 5	1–9	Low (<20%)	The Tail: This region is loosely held. Mismatches here rarely prevent cleavage unless there are multiple consecutive mismatches (3+) or the guide has very weak intrinsic binding energy.
+  var_data$disruption_tier <- 5
+  var_data$disruption_tier[var_data$position_in_guide >= 10] <- 4
+  var_data$disruption_tier[var_data$position_in_guide >= 13] <- 3
+  var_data$disruption_tier[var_data$position_in_guide >= 17] <- 2
+  var_data$disruption_tier[var_data$position_in_guide >= 22] <- 1
+
+  # ============================================================================
+  # 2. DBSNP / KNOWN VARIATION (Optional Feature)
+  # ============================================================================
+  # Logic: If dbSNP is missing, everyone is "Unknown" (3).
+  var_data$dbSNP_priority <- 3
+
   if (!is.null(var_data$dbSNP)) {
     is_known_variant <- sapply(var_data$dbSNP, function(df) {
       if (nrow(df) > 0) any(df$is_known_variant) else NA
     })
-    var_data$dbSNP_priority[!is.na(is_known_variant) & !is_known_variant] <- 2 # Known, but not matching allele
-    var_data$dbSNP_priority[is_known_variant] <- 1 # Gold standard: Known benign
+    # Known locus but different allele -> Tier 2
+    var_data$dbSNP_priority[!is.na(is_known_variant) & !is_known_variant] <- 2
+    # Known locus and matching allele -> Tier 1 (Gold Standard)
+    var_data$dbSNP_priority[is_known_variant] <- 1
   }
 
-  # Non-coding Overlap
+  # ============================================================================
+  # 3. NON-CODING OVERLAPS (Guaranteed Annotation Feature)
+  # ============================================================================
   var_data$has_nc_overlap <- FALSE
   if (!is.null(var_data$noncoding)) {
     var_data$has_nc_overlap <- sapply(var_data$noncoding, nrow) > 0
   }
 
-  # Ensure CADD exists
-  if (is.null(var_data$CADD)) var_data$CADD <- 0
+  # ============================================================================
+  # 4. CADD SCORES (Optional Feature)
+  # ============================================================================
+  # Logic: If CADD is missing, impute a "Neutral/Borderline" score (15).
+  # This ensures that if we compare a No-Data SNP vs a High-Risk SNP (CADD=30),
+  # the No-Data SNP wins. If we compare No-Data vs Low-Risk (CADD=5), Low-Risk wins.
+  if (is.null(var_data$CADD)) var_data$CADD <- NA
 
-  # --- 2. Calculate Tiers for "Balanced" Scheme ---
-  var_data$is_pam_proximal <- var_data$position_in_guide > pam_proximal_threshold
-  is_known_benign <- var_data$dbSNP_priority == 1
-  is_predicted_benign <- var_data$CADD < benign_cadd_threshold & !var_data$has_nc_overlap
+  var_data$cadd_imputed <- var_data$CADD
+  var_data$cadd_imputed[is.na(var_data$cadd_imputed)] <- 15 # Borderline
 
-  # Assign tiers from worst to best (lower tier number is better)
-  var_data$priority_tier <- 6 # Tier 6: Fallback (default)
-  var_data$priority_tier[var_data$is_pam_proximal & !is_known_benign & !is_predicted_benign] <- 5
-  var_data$priority_tier[is_predicted_benign & !var_data$is_pam_proximal & !is_known_benign] <- 4
-  var_data$priority_tier[is_predicted_benign & var_data$is_pam_proximal & !is_known_benign] <- 3
-  var_data$priority_tier[is_known_benign & !var_data$is_pam_proximal] <- 2
-  var_data$priority_tier[is_known_benign & var_data$is_pam_proximal] <- 1 # Tier 1: Perfect
+  # ============================================================================
+  # 5. ALPHAGENOME (Splicing Only)
+  # ============================================================================
+  # Initialize zeros (Neutral)
+  ag_splice_usage <- rep(0, length(var_data))
+  ag_splice_sites <- rep(0, length(var_data))
+
+  # Extract Usage (Isoform regulation)
+  if ("alphagenome_SPLICE_SITE_USAGE" %in% names(mcols(var_data))) {
+    raw <- var_data$alphagenome_SPLICE_SITE_USAGE
+    # Values are already absolute and aggregated (Max or 95%) by previous function
+    ag_splice_usage[!is.na(raw)] <- raw[!is.na(raw)]
+  }
+
+  # Extract Sites (Physical Motif Creation/Destruction)
+  if ("alphagenome_SPLICE_SITES" %in% names(mcols(var_data))) {
+    raw <- var_data$alphagenome_SPLICE_SITES
+    ag_splice_sites[!is.na(raw)] <- raw[!is.na(raw)]
+  }
+
+  # Risk Flag:
+  # Passes if ANY individual score exceeds the threshold.
+  var_data$is_ag_risky <- (ag_splice_usage > ag_threshold) |
+    (ag_splice_sites > ag_threshold)
+
+  # Tie-breaker Score (Max Magnitude):
+  # Used for sorting two "safe" SNPs (e.g., 0.01 vs 0.15)
+  var_data$ag_max_score <- pmax(ag_splice_usage, ag_splice_sites)
+
+  # ============================================================================
+  # 6. FINAL SAFETY TIER (The "Meta" Feature)
+  # ============================================================================
+  # 1 = Proven Benign (dbSNP Match)
+  # 2 = High Confidence Benign (Low CADD + Low AG + No NC Overlap)
+  # 3 = Neutral / No Data (Imputed CADD + No AG + No NC Overlap)
+  # 4 = Predicted Risky (High CADD or High AG)
+  # 5 = Structural/Annotation Risk (Non-coding overlap)
+  tier <- rep(3, length(var_data)) # Default to Neutral
+
+  # Risk Factors
+  is_risky_pred <- (var_data$cadd_imputed > benign_cadd_threshold) | var_data$is_ag_risky
+  tier[is_risky_pred] <- 4
+  tier[var_data$has_nc_overlap] <- 5
+  # Safety Factors
+  has_real_data <- !is.na(var_data$CADD) # Proxy for "Is this Human/Mouse?"
+  is_low_cadd <- var_data$cadd_imputed < benign_cadd_threshold
+  # Predicted Safe: Needs Low CADD AND Low AG AND No Overlap
+  tier[has_real_data & is_low_cadd & !is_risky_pred & !var_data$has_nc_overlap] <- 2
+  # Known Benign Overrides predictions
+  tier[var_data$dbSNP_priority == 1 & !var_data$has_nc_overlap] <- 1
+  var_data$safety_tier <- tier
+
+  # ============================================================================
+  # 2. CALCULATE PRIORITY GROUP (Switch Case)
+  # ============================================================================
+
+  # Initialize with a high number (lowest priority)
+  prio <- rep(99, length(var_data))
+  d_tier <- var_data$disruption_tier
+  s_tier <- var_data$safety_tier
+
+  if (optimization_scheme == "balanced") {
+    # ---------------------------------------------------------
+    # STRATEGY: BALANCED (Smart Hierarchy)
+    # ---------------------------------------------------------
+    # 1. Platinum: PAM/Crit (1-2) + Benign/HighConf (1-2)
+    prio[d_tier <= 2 & s_tier <= 2] <- 1
+    # 2. Gold: Seed (3) + Benign/HighConf (1-2)
+    prio[d_tier == 3 & s_tier <= 2] <- 2
+    # 3. Silver: PAM/Crit (1-2) + Neutral (3)
+    prio[d_tier <= 2 & s_tier == 3] <- 3
+    # 4. Bronze: Seed (3) + Neutral (3)
+    prio[d_tier == 3 & s_tier == 3] <- 4
+    # 5. Iron: Distal (4-5) + Benign/HighConf (1-2) -> Safe Fillers
+    prio[d_tier >= 4 & s_tier <= 2] <- 5
+    # 6. Lead: Distal (4-5) + Neutral (3) -> Neutral Fillers
+    prio[d_tier >= 4 & s_tier == 3] <- 6
+    # 7. Maverick: PAM (1-2) + Risky (4) -> Effective but Toxic (Last Resort)
+    prio[d_tier <= 2 & s_tier == 4] <- 7
+    # 8. Radioactive: Everything else (Risky Seed/Distal or Structural Tier 5)
+    prio[s_tier >= 4 & d_tier >= 3] <- 8
+    prio[s_tier == 5] <- 9
+
+  } else if (optimization_scheme == "disruption_first") {
+    # ---------------------------------------------------------
+    # STRATEGY: DISRUPTION FIRST (Hunter)
+    # ---------------------------------------------------------
+    # 1. Guaranteed Kill: PAM (1-2), even if Risky (Safety 1-4)
+    prio[d_tier <= 2 & s_tier <= 4] <- 1
+    # 2. Likely Kill: Seed (3), even if Risky (Safety 1-4)
+    prio[d_tier == 3 & s_tier <= 4] <- 2
+    # 3. Weak: Distal (4-5)
+    prio[d_tier >= 4 & s_tier <= 4] <- 3
+    # 4. Invalid: Structural Failures (Safety 5)
+    prio[s_tier == 5] <- 4
+  } else if (optimization_scheme == "safety_first") {
+    # ---------------------------------------------------------
+    # STRATEGY: SAFETY FIRST (Conservationist)
+    # ---------------------------------------------------------
+    # Strictly follows Safety Tier.
+    # Within Tier 1, position will be handled by the selector function tie-breaker.
+    prio[s_tier == 1] <- 1
+    prio[s_tier == 2] <- 2
+    prio[s_tier == 3] <- 3
+    prio[s_tier == 4] <- 4
+    prio[s_tier == 5] <- 5
+  } else {
+    stop("Invalid optimization_scheme. Choose 'balanced', 'disruption_first', or 'safety_first'.")
+  }
+
+  var_data$priority_group <- prio
   return(var_data)
 }
 
@@ -97,28 +234,35 @@ augment_var_data_with_scores <- function(var_data,
 #'   selects the top N non-overlapping ones.
 #' @return A GRanges object of the selected mutations.
 #' @keywords internal
+#'
 find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
   if (length(guide_snps) == 0) return(GRanges())
 
   ordering <- switch(
     optimization_scheme,
     "balanced" = order(
-      guide_snps$priority_tier,      # Tier 1 is best
-      -guide_snps$position_in_guide, # Within tier, proximal is best
-      guide_snps$CADD                # Further tie-breaker
+      guide_snps$priority_group,
+      guide_snps$disruption_tier,
+      guide_snps$cadd_imputed,
+      -guide_snps$position_in_guide
     ),
-    "safety_first" = order(
-      guide_snps$dbSNP_priority,       # Known benign is best
-      guide_snps$has_nc_overlap,       # No overlap is best
-      guide_snps$CADD,                 # Low CADD is best
-      -guide_snps$position_in_guide    # Tie-breaker: disruption
-    ),
+    # CRITICAL: Within the PAM bucket (Group 1), we still sort by Safety Tier.
+    # This means if we have a Safe PAM and a Toxic PAM, we pick the Safe one.
+    # But because Toxic PAM is Group 1 and Safe Seed is Group 2, Toxic PAM wins.
     "disruption_first" = order(
-      -guide_snps$position_in_guide,   # Proximal is best
-      guide_snps$dbSNP_priority,       # Tie-breaker: safety
-      guide_snps$has_nc_overlap,
-      guide_snps$CADD
+      guide_snps$priority_group,
+      guide_snps$safety_tier,
+      guide_snps$cadd_imputed
     ),
+    # CRITICAL: Within the Safe bucket (Group 1), we sort by Disruption Tier.
+    # Safe PAM > Safe Seed.
+    # But Safe Seed (Group 1) > Toxic PAM (Group 4).
+    "safety_first" = order(
+      guide_snps$priority_group,
+      guide_snps$disruption_tier,
+      -guide_snps$position_in_guide
+    ),
+
     stop("Invalid optimization_scheme")
   )
 
@@ -126,34 +270,50 @@ find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
   select_non_overlapping_mutations(sorted_snps, N)
 }
 
-#' @title Find all valid combinations of SNPs for a single guide
-#' @description Generates all combinations of a given size and filters them
-#'   for validity (no overlaps).
-#' @return A list of GRanges objects, each a valid combination.
+#' @title Assess Guide Disruption on Final Template
+#' @description Aligns the guide sequence (with PAM) to the final generated template
+#' sequence to precisely calculate disruption metrics.
 #' @keywords internal
-find_all_snp_combinations_for_guide <- function(guide_snps, mpt) {
-  if (length(guide_snps) < mpt) return(list())
+#'
+assess_guide_disruption <- function(guide, template_seq) {
+  aln <- pwalign::pairwiseAlignment(
+    DNAString(guide$with_pam), template_seq,
+    type = "global-local",
+    substitutionMatrix = pwalign::nucleotideSubstitutionMatrix(
+      match = 1, mismatch = 0, baseOnly = F),
+    gapOpening = 0, gapExtension = -1
+  )
 
-  combs_indices <- combn(seq_along(guide_snps), mpt, simplify = FALSE)
+  # Get the aligned pattern (guide) and subject (template) substrings
+  # Note: pattern(aln) returns the aligned version (with gaps), but we want the substring
+  # corresponding to the alignment on the subject.
 
-  valid_combinations <- lapply(combs_indices, function(indices) {
-    candidate_muts <- guide_snps[indices]
-    # Use select_non_overlapping_mutations as a validity check
-    selected <- select_non_overlapping_mutations(candidate_muts, mpt)
-    if (length(selected) == mpt) {
-      return(selected)
-    } else {
-      return(NULL)
-    }
-  })
+  is_plus <- as.character(guide$strand) == "+"
 
-  # Remove NULLs from the list
-  valid_combinations[!sapply(valid_combinations, is.null)]
+  # Extract aligned strings (these are characters)
+  # We need to look at mismatches.
+  # `pattern(aln)` is the guide (query). `subject(aln)` is the template part.
+  # `compareStrings` gives a string with "?" for mismatch.
+  comp <- pwalign::compareStrings(aln)
+
+  # Parse mismatches
+  mismatches <- unlist(strsplit(comp, ""))
+  is_mismatch <- mismatches %in% c("?", "+") # + is gap
+
+  # Mismatch indices (1-based relative to the 23bp guide fragment)
+  mm_indices <- which(is_mismatch)
+  list(
+    total_disrupton = length(mm_indices),
+    pam_disrupted = sum(mm_indices %in% if (is_plus) c(22, 23) else c(1, 2)),
+    seed_disrupted = sum(mm_indices %in% if (is_plus) c(11:20) else c(4:13)),
+    aln_guide = as.character(pwalign::pattern(aln)),
+    aln_template = as.character(pwalign::subject(aln))
+  )
 }
 
 #' @title Create HDR template and probes from a set of mutations
 #' @description Injects selected SNPs into the base template sequence, calculates
-#'   summary statistics, and designs validation probes.
+#'   summary statistics based on re-alignment, and designs validation probes.
 #' @return A list containing the 'template' and 'probes' GRanges.
 #' @keywords internal
 #'
@@ -163,60 +323,76 @@ create_template_and_probes <- function(selected_muts,
                                        design_id,
                                        edit_region,
                                        source_genomic_seq,
+                                       current_guide,
                                        do_probes,
                                        probe_params) {
-  # Return empty list if no mutations were selected
-  if (is.null(selected_muts) || length(selected_muts) == 0) {
-    return(list(template = GRanges(), probes = GRanges()))
+
+  muts_to_inject <- variants_in_editw
+  snvs_introduced <- ""
+  total_cadd <- 0
+  total_snp_quality <- 0
+  any_overlaps_nc <- FALSE
+
+  if (length(selected_muts) > 0) {
+    # Map selected SNPs to edit window
+    muts_in_editw <- pmapToTranscripts(selected_muts, edit_region)
+    muts_in_editw$ALT <- selected_muts$ALT
+
+    # Combine introduced SNPs with original template variants for injection
+    muts_to_inject <- sort(c(variants_in_editw, muts_in_editw))
+
+    # Stats
+    snvs_introduced <- paste0(names(selected_muts), collapse = ";")
+    total_cadd <- sum(selected_muts$cadd_imputed, na.rm = TRUE)
+    total_snp_quality <- sum(selected_muts$dbSNP_priority, na.rm = TRUE)
+    any_overlaps_nc <- any(selected_muts$has_nc_overlap)
   }
 
-  # Combine introduced SNPs with original template variants for injection
-  muts_in_editw <- pmapToTranscripts(selected_muts, edit_region)
-  muts_in_editw$ALT <- selected_muts$ALT
-  all_muts_in_editw <- sort(c(variants_in_editw, muts_in_editw))
-
   # Inject all mutations to create the final HDR sequence
-  final_hdr_seq <- replaceAt(source_genomic_seq,
-                             at = ranges(all_muts_in_editw),
-                             value = DNAStringSet(all_muts_in_editw$ALT))
+  final_hdr_seq <- if (length(muts_to_inject) > 0) {
+    replaceAt(source_genomic_seq,
+              at = ranges(muts_to_inject),
+              value = DNAStringSet(muts_to_inject$ALT))
+  } else {
+    source_genomic_seq
+  }
 
-  # --- Summary Statistics ---
-  total_cadd <- sum(selected_muts$CADD, na.rm = TRUE)
-  pam_disrupted_count <- sum(selected_muts$position_in_guide >= 22)
-  guide_disrupted_count <- length(unique(selected_muts$guide_name))
-  any_overlaps_noncoding <- any(selected_muts$has_nc_overlap)
-  total_snp_quality_score <- sum(selected_muts$dbSNP_priority)
+  # 3. Score Guide against Final Template
+  # This replaces the old static calculation
+  guide_stats <- assess_guide_disruption(current_guide, final_hdr_seq)
 
-  # --- Create the final template GRanges object ---
+  # 4. Create Template Object
   template_gr <- edit_region
   names(template_gr) <- design_id
   template_gr$sequence <- as.character(final_hdr_seq)
-  template_gr$snps_introduced <- paste(names(selected_muts), collapse = ";")
-  template_gr$pam_disrupted_count <- pam_disrupted_count
-  template_gr$guide_disrupted_count <- guide_disrupted_count
+  template_gr$snvs_introduced <- snvs_introduced
+  template_gr$pam_disrupted_count <- guide_stats$pam_disrupted
+  template_gr$seed_disrupted_count <- guide_stats$seed_disrupted
+  template_gr$total_disruption_count <- guide_stats$total_disrupton
+  template_gr$aln_guide <- guide_stats$aln_guide
+  template_gr$aln_template <- guide_stats$aln_template
   template_gr$total_cadd <- total_cadd
-  template_gr$any_overlaps_noncoding <- any_overlaps_noncoding
-  template_gr$total_snp_quality_score <- total_snp_quality_score
+  template_gr$any_overlaps_noncoding <- any_overlaps_nc
+  template_gr$total_snp_quality_score <- total_snp_quality
 
-  # --- Design Probes if requested ---
+  # --- 5. Design Probes if requested ---
   probes_out <- GRanges()
+  # If there are no muts to cover, no point in HDR probes
   if (do_probes) {
-    # We need a coordinate map for the final_hdr_seq
     hdr_template_coord_map <- build_variant_layout(
-      all_muts_in_editw, nchar(source_genomic_seq))
-    all_genomic_variants <- c(selected_muts, variants_genomic_on_ts)
+      muts_to_inject, nchar(source_genomic_seq))
 
     candidates <- design_probes(
       s = final_hdr_seq,
       genomic_context = edit_region,
       coordinate_map = hdr_template_coord_map,
-      variants_genomic = all_genomic_variants,
+      variants_genomic = c(selected_muts, variants_genomic_on_ts),
       tmin = probe_params$tmin, tmax = probe_params$tmax,
       len_min = probe_params$len_min, len_max = probe_params$len_max)
 
     if (nrow(candidates) > 0) {
       probes_out <- select_probes(
-        muts_to_cover = selected_muts,
+        muts_to_cover = c(selected_muts, variants_genomic_on_ts),
         candidates = candidates,
         temp_name = design_id)
 

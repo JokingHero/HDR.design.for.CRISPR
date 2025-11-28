@@ -43,7 +43,7 @@ analyze_transcript_integrity <- function(
     cds_by_tx, variants_genomic_on_ts, ignore.strand = TRUE)
   if (length(variant_hits) == 0) return(list())
 
-  affected_tx_names <- names(cds_by_tx)[queryHits(variant_hits)]
+  affected_tx_names <- names(cds_by_tx)[S4Vectors::queryHits(variant_hits)]
   exons_by_tx <- suppressWarnings(exonsBy(txdb, by = "tx", use.names = TRUE))
 
   analysis_list <- lapply(unique(affected_tx_names), function(tx_id) {
@@ -51,8 +51,8 @@ analyze_transcript_integrity <- function(
 
     # Identify variants on this specific transcript
     tx_idx_in_cds_list <- which(names(cds_by_tx) == tx_id)
-    current_hits_mask <- queryHits(variant_hits) == tx_idx_in_cds_list
-    variants_on_tx_genomic <- variants_genomic_on_ts[subjectHits(variant_hits)[current_hits_mask]]
+    current_hits_mask <- S4Vectors::queryHits(variant_hits) == tx_idx_in_cds_list
+    variants_on_tx_genomic <- variants_genomic_on_ts[S4Vectors::subjectHits(variant_hits)[current_hits_mask]]
     indels_on_tx_genomic <- variants_on_tx_genomic[
       nchar(variants_on_tx_genomic$REF) != nchar(variants_on_tx_genomic$ALT)]
 
@@ -193,6 +193,7 @@ extract_codon_safe <- function(transcript_seq, codon_num) {
 #'   that define the "mutated" reference transcriptome.
 #' @param txdb A TxDb object for transcript information.
 #' @param genome A BSgenome object for sequence extraction.
+#' @param benign_if_moot_statuses "Frameshifted", "Splice site disrupted", "DOWNSTREAM_OF_PTC"
 #'
 #' @return A DataFrameList, where each element corresponds to a variant in
 #'   `all_variants` and contains a DataFrame of annotations for each affected transcript.
@@ -203,7 +204,7 @@ extract_codon_safe <- function(transcript_seq, codon_num) {
 #' @importFrom IRanges IRanges
 #' @importFrom SummarizedExperiment seqnames
 #' @importFrom GenomeInfoDb seqnames
-#' @importFrom VariantAnnotation mapToTranscripts
+#' @importFrom GenomicFeatures mapToTranscripts
 #'
 annotate_variants_with_cds <- function(
     all_variants, variants_genomic_on_ts, txdb, genome,
@@ -242,7 +243,7 @@ annotate_variants_with_cds <- function(
       info <- tx_integrity_info[[tx_id]]
 
       # --- Initialize annotation variables ---
-      status <- "" # default status is no status
+      status <- "SYNONYMOUS" # default status
       pos_on_final_seq <- NA_integer_
       final_seq <- NULL
       codon_num <- NA_integer_
@@ -303,7 +304,7 @@ annotate_variants_with_cds <- function(
 
         # Translate to amino acids only if the change is meaningful
         if (status %in% c(
-          "", "UNAFFECTED_TRANSCRIPT", "AA_CHANGE", "AA_CHANGE_BEFORE_PTC")) {
+          "", "SYNONYMOUS", "AA_CHANGE", "AA_CHANGE_BEFORE_PTC")) {
           aa_ref <- translate_safe(ref_codon_dna)
           aa_alt <- translate_safe(alt_codon_dna)
         }
@@ -484,7 +485,8 @@ annotate_variants_with_cadd <- function(all_variants, cadd) {
 annotate_mutations_with_alphagenome <- function(all_variants,
                                                 alphagenome_key,
                                                 species,
-                                                python_exec = "python3") {
+                                                python_exec = "python3",
+                                                alphagenome_context = "") {
   if (Sys.which(python_exec) == "") {
     stop(paste0("Python executable '", python_exec, "' not found. ",
                 "Please make sure python is installed and in your PATH."))
@@ -525,18 +527,37 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     stop("Python script seems to have completed, but the output file is missing or empty.\n",
              "Output:\n", paste(result, collapse = "\n"))
   }
-  mean_raw_score <- raw_score <- variant_id <- output_type <- NULL
+  quantile_score <- aggregated_score <- variant_id <- output_type <- NULL
   ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
-  # we will now average all raw scores for many tissues and cell lines
+
+  has_context <- !is.null(alphagenome_context) && alphagenome_context != ""
+  if (has_context) {
+    ag_dt <- ag_dt[ag_dt$biosample_name == alphagenome_context | is.na(ag_dt$biosample_name), ]
+  }
+  # --- 1. Handle Directionality ---
+  # We treat deviation from WT (magnitude) as the risk factor.
+  ag_dt$quantile_score <- abs(ag_dt$quantile_score)
   ag_dt <- dplyr::group_by(ag_dt, variant_id, output_type)
+
+  # --- 2. Smart Aggregation ---
+
   ag_dt <- suppressMessages(dplyr::summarise(
-    ag_dt, mean_raw_score = mean(raw_score, na.omit = T)))
+    ag_dt,
+    aggregated_score = if (has_context) {
+      # Specific Context: Trust the Maximum signal
+      max(quantile_score, na.rm = TRUE)
+    } else {
+      # Global Context: Use 95th percentile to filter noise floor
+      stats::quantile(quantile_score, probs = 0.95, na.rm = TRUE)
+    }
+  ))
   ag_dt$output_type <- paste0("alphagenome_", ag_dt$output_type)
   ag_dt <- tidyr::pivot_wider(
     ag_dt,
     id_cols = variant_id,
     names_from = output_type,
-    values_from = mean_raw_score)
+    values_from = aggregated_score
+  )
 
   original_ids_order <- paste0(
     as.character(GenomicRanges::seqnames(all_variants)), ":",
@@ -557,13 +578,13 @@ prepare_candidate_snps <- function(
     annotation, txdb, genome,
     variants_genomic_on_ts,
     intron_bp, exon_bp, clinvar, snps, cadd,
-    alphagenome_key, python_exec) {
+    alphagenome_key, python_exec, alphagenome_context) {
 
   # some variants might be indels - complicates codon assesments!
   is_indel <- nchar(variants_genomic_on_ts$REF) != nchar(variants_genomic_on_ts$ALT)
   search_positions <- GRanges(candidate_snp_map$coords)
   search_positions <- sort(unique(search_positions))
-  # remove non-indel variant positions - but this is already done trough the candidate_snp_map
+  # remove indel variant positions - but this is already done trough the candidate_snp_map
   search_positions <- search_positions[
     !(search_positions %over% variants_genomic_on_ts[!is_indel])]
   mcols(search_positions) <- NULL
@@ -649,9 +670,9 @@ prepare_candidate_snps <- function(
     } else if (organism(genome) == "Mus musculus") {
       "mouse"
     } else NA
-    if (!is.na(species)) {
+    if (!is.na(species) && alphagenome_context != "") {
       ag_dt <- annotate_mutations_with_alphagenome(
-        all_variants, alphagenome_key, species, python_exec)
+        all_variants, alphagenome_key, species, python_exec, alphagenome_context)
       mcols(all_variants) <- cbind(mcols(all_variants), ag_dt)
     }
   }
@@ -667,9 +688,11 @@ prepare_candidate_snps <- function(
   }
 
   # Construct the final data object.
-  final_snps <- all_variants[queryHits(hits)]
-  final_snps$guide_name <- candidate_snp_map$guide_name[subjectHits(hits)]
-  final_snps$position_in_guide <- candidate_snp_map$position_in_guide[subjectHits(hits)]
+  final_snps <- all_variants[S4Vectors::queryHits(hits)]
+  final_snps$guide_name <- candidate_snp_map$guide_name[
+    S4Vectors::subjectHits(hits)]
+  final_snps$position_in_guide <- candidate_snp_map$position_in_guide[
+    S4Vectors::subjectHits(hits)]
   names(final_snps) <- paste0(seqnames(final_snps), ":", start(final_snps), ":",
                               final_snps$REF, ">", final_snps$ALT,
                               " (for ", final_snps$guide_name, ")")

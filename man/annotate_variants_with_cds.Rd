@@ -2,27 +2,37 @@
 % Please edit documentation in R/synonymous_snps_helpers.R
 \name{annotate_variants_with_cds}
 \alias{annotate_variants_with_cds}
-\title{Annotate coding sequence changes for a set of variants.}
+\title{Annotate SNV effects on CDS, considering background variants.}
 \usage{
-annotate_variants_with_cds(all_variants, txdb, genome)
+annotate_variants_with_cds(
+  all_variants,
+  variants_genomic_on_ts,
+  txdb,
+  genome,
+  benign_if_moot_statuses = c("Frameshifted", "Splice site disrupted",
+    "DOWNSTREAM_OF_PTC")
+)
 }
 \arguments{
-\item{all_variants}{A GRanges object containing the variants. Must have "REF"
-and "ALT" metadata columns and be named.}
+\item{all_variants}{A GRanges object of SNVs to be annotated.}
 
-\item{txdb}{A TxDb object containing transcript models.}
+\item{variants_genomic_on_ts}{A GRanges object of background variants (SNVs or indels)
+that define the "mutated" reference transcriptome.}
 
-\item{genome}{A BSgenome object for the reference genome.}
+\item{txdb}{A TxDb object for transcript information.}
+
+\item{genome}{A BSgenome object for sequence extraction.}
+
+\item{benign_if_moot_statuses}{"Frameshifted", "Splice site disrupted", "DOWNSTREAM_OF_PTC"}
 }
 \value{
-A DataFrameList where each element corresponds to a variant. Each
-DataFrame contains detailed annotations for every transcript the variant
-overlaps, with columns: tx_id, tx_strand, codon_ref, codon_alt,
-aa_ref, aa_alt, codon_num, and frame.
+A DataFrameList, where each element corresponds to a variant in
+\code{all_variants} and contains a DataFrame of annotations for each affected transcript.
 }
 \description{
-This function takes a GRanges object of single nucleotide variants (SNVs),
-all on the '+' strand, and annotates their effects on the coding sequences (CDS)
-of overlapping transcripts.
+This function annotates a set of single nucleotide variants (\code{all_variants})
+by determining their effect on the coding sequences of overlapping transcripts.
+It uniquely accounts for a pre-defined set of background variants
+(\code{variants_genomic_on_ts}), which can include indels, that modify the
+transcript sequences before the SNVs of interest are evaluated.
 }
-\keyword{internal}

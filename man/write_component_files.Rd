@@ -4,16 +4,9 @@
 \alias{write_component_files}
 \title{Helper write components}
 \usage{
-write_component_files(
-  output_dir,
-  design_name,
-  component,
-  component_name,
-  chrom_relative
-)
+write_component_files(output_dir, design_name, component, component_name)
 }
 \description{
-Helper to write CSV and GFF3 for a given GRanges component.
-It calculates relative coordinates within the \code{chrom_relative} window.
+Helper to write CSV and GFF3 for a given component
 }
 \keyword{internal}
