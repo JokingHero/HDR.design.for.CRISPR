@@ -4,10 +4,10 @@
 \alias{get_offtarget_count_MM0}
 \title{Check 0MM off-targets for each guide}
 \usage{
-get_offtarget_count_MM0(guides_seq, offtargets_seq)
+get_offtarget_count_MM0(guides_target_seq, offtargets_seq)
 }
 \arguments{
-\item{guides_seq}{DNAStringSet of the guides}
+\item{guides_target_seq}{DNAStringSet of the guides}
 
 \item{offtargets_seq}{list of DNAStringSet elements where we will look for
 0MM off-targets and sum up results}

@@ -7,7 +7,8 @@
 design_primers_rna(
   target,
   position,
-  guides_seq,
+  guide_target_seq,
+  guide_starts,
   primers_per_guide,
   primer3_path
 )

@@ -106,9 +106,13 @@ parse_primer3_system2_output <- function(output_lines) {
 design_primers_rna <- function(
     target,
     position,
-    guides_seq,
+    guide_target_seq,
+    guide_starts,
     primers_per_guide,
     primer3_path){
+  padding_size <- 150 # +- around guide
+  target_char <- as.character(target)
+  target_len  <- nchar(target_char)
   message("Designing primers...")
   global_str <- list(
     "PRIMER_TASK" = "generic",
@@ -137,14 +141,28 @@ design_primers_rna <- function(
     "PRIMER_MAX_TM" = 65,
     "P3_FILE_FLAG" = 0)
 
-  input_records <- character(length(guides_seq))
-  for (i in seq_along(guides_seq)) {
-    # SEQUENCE_INTERNAL_OLIGO forces P3 to use THIS sequence as the probe
+  input_records <- character(length(guide_target_seq))
+  # offsets[i] corresponds to SEQUENCE_ID=i
+  offsets <- numeric(length(guide_target_seq))
+  for (i in seq_along(guide_target_seq)) {
+    g_start <- guide_starts[i]
+    g_seq   <- as.character(guide_target_seq[[i]])
+    g_len   <- nchar(g_seq)
+
+    # Calculate Region of Interest (ROI)
+    # We ensure we don't go out of bounds (1 to target_len)
+    roi_start <- max(1, g_start - padding_size)
+    roi_end   <- min(target_len, g_start + g_len + padding_size)
+    local_template <- substr(target_char, roi_start, roi_end)
+
+    # Store the offset (value to ADD to primer3 result to get global coord)
+    # If roi_start is 101, local index 1 is global 101. Offset = 100.
+    offsets[i] <- roi_start - 1
     input_records[i] <- paste0(
       "SEQUENCE_ID=", i, "\n",
-      "SEQUENCE_TEMPLATE=", target, "\n",
-      "SEQUENCE_INTERNAL_OLIGO=", as.character(guides_seq[[i]]), "\n",
-      if (i == length(guides_seq)) "=" else "=\n")
+      "SEQUENCE_TEMPLATE=", local_template, "\n",
+      "SEQUENCE_INTERNAL_OLIGO=", g_seq, "\n",
+      if (i == length(guide_target_seq)) "=" else "=\n")
   }
 
   # BoulderIO allows Globals to persist.
@@ -170,6 +188,12 @@ design_primers_rna <- function(
   }
 
   primers <- parse_primer3_system2_output(out)
+  if (nrow(primers) > 0) {
+    rec_ids <- as.numeric(primers$SEQUENCE_ID)
+    row_offsets <- offsets[rec_ids]
+    primers$PRIMER_FORWARD_START <- primers$PRIMER_FORWARD_START + row_offsets
+    primers$PRIMER_REVERSE_START <- primers$PRIMER_REVERSE_START + row_offsets
+  }
   rownames(primers) <- paste0("Design ", 1:nrow(primers))
   # TODO off-target search for primers?! can we even do that?!
   return(primers)
@@ -337,19 +361,19 @@ predict_spacer_self_structure <- function(spacer_with_linker_seq,
 #' Check 0MM off-targets for each guide
 #' @description Check 0MM off-targets for each guide inside the list of
 #' offtargets_seq.
-#' @param guides_seq DNAStringSet of the guides
+#' @param guides_target_seq DNAStringSet of the guides
 #' @param offtargets_seq list of DNAStringSet elements where we will look for
 #' 0MM off-targets and sum up results
 #' @return A vector with one number for each guide
 #' @keywords internal
 #'
-get_offtarget_count_MM0 <- function(guides_seq, offtargets_seq) {
-  ot_count <- rep(0, length(guides_seq))
+get_offtarget_count_MM0 <- function(guides_target_seq, offtargets_seq) {
+  ot_count <- rep(0, length(guides_target_seq))
   if (length(offtargets_seq) == 0) {
     return(ot_count)
   }
-  for (i in seq_along(guides_seq)) {
-    guide <- guides_seq[[i]]
+  for (i in seq_along(guides_target_seq)) {
+    guide <- guides_target_seq[[i]]
     ot_count[i] <- sum(sapply(offtargets_seq, function(transcriptome) {
       mindex <- Biostrings::vmatchPattern(guide, transcriptome)
       nmatch_per_seq <- elementNROWS(mindex)
@@ -433,14 +457,17 @@ design_twisted_cas13a <- function(
 
   # Generate the valid Ranges
   # We only select the starts that survived the boundary check
-  valid_starts <- potential_starts[valid_idx]
-  guide_target <- IRanges(start = valid_starts, width = guide_length)
+  guide_starts <- potential_starts[valid_idx]
+  guide_target <- IRanges(start = guide_starts, width = guide_length)
   guide_target_views <- Views(target, guide_target)
   guide_target_seq <- methods::as(guide_target_views, "DNAStringSet")
 
   # Now we generate up to N primer pairs with T7 around our position
   primers <- design_primers_rna(
-    target, position, guide_target_seq, primers_per_guide, primer3_path)
+    target, position,
+    guide_target_seq, guide_starts,
+    primers_per_guide,
+    primer3_path)
   if (nrow(primers) == 0) stop("Primer3 failed to find valid primers.")
   target_match <- match(primers$SEQUENCE_INTERNAL_OLIGO, as.character(guide_target_seq))
   # I think for Twisted Cas13a it on 5' end of target
@@ -461,8 +488,8 @@ design_twisted_cas13a <- function(
   # offtargets_rds <- lapply(offtargets_rds, readRDS)
   # offtargets_transcripts <- lapply(offtargets_fasta, readDNAStringSet)
   # primers$GUIDE_OFFTARGET_COUNT <-
-  #   get_offtarget_count_MM0(guides_seq, offtargets_rds) +
-  #   get_offtarget_count_MM0(guides_seq, offtargets_transcripts)
+  #   get_offtarget_count_MM0(guides_target_seq, offtargets_rds) +
+  #   get_offtarget_count_MM0(guides_target_seq, offtargets_transcripts)
 
   # Generate Full Amplicons & Dual Components
   primers$amp_seq_dna <- as.character(Biostrings::subseq(
