@@ -364,6 +364,7 @@ export_design_results <- function(
     # Reorder columns to make the CSV more readable for the user
     # Add disruption_bin to the output so users understand the sorting
     priority_cols <- c(
+      "coords",
       "snvs_introduced",
       "n_snvs",
       "disruption_bin",
@@ -384,7 +385,7 @@ export_design_results <- function(
 
     # Reconstruct mcols in desired order
     mcols(repair_template) <- mcols(repair_template)[, c(existing_priority, remaining_cols)]
-    write_component_files(output_dir, design_name, repair_template, "templates")
+    write_component_files(output_dir, design_name, as.data.frame(repair_template), "templates")
   }
   rownames(all_probes) <- all_probes$names
   write_component_files(output_dir, design_name, all_probes, "probes")

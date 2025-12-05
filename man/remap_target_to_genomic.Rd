@@ -17,6 +17,8 @@ remap_target_to_genomic(
 \item{coordinate_map}{The map created by \code{map_variants}.}
 
 \item{window_genomic}{The GRanges object for the entire genomic window.}
+
+\item{variants_genomic}{The GRanges of the variants with genomic coordinates.}
 }
 \value{
 A data.frame containing the original information for each target that

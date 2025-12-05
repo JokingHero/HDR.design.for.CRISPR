@@ -96,7 +96,7 @@ process_strand <- function(
 #' @param design_name A character string for naming the design.
 #' @param cut_distance_max An integer.
 #' @param genome A BSgenome object for sequence retrieval.
-#' @param any_ALT_on_guides whether any ALT variant is on the guides
+#' @param ALT_on_genome whether any ALT variant is on the guides
 #' @param score_efficiency A logical flag. If TRUE, calculate efficiency scores.
 #' @return A GRanges object containing all found guides, their sequences, scores
 #'         (for successfully run algorithms), and a final aggregated rank.
@@ -104,7 +104,7 @@ process_strand <- function(
 #'
 get_guides_and_scores <- function(
     variants_genomic, design_name, cut_distance_max, genome,
-    any_ALT_on_guides,
+    ALT_on_genome,
     score_efficiency = TRUE) {
   window_width <- width(range(variants_genomic)) +
     (cut_distance_max + 23 - 6) * 2 + 1 + 35 * 2 # 35bp is guide score length padding
@@ -115,13 +115,13 @@ get_guides_and_scores <- function(
   mcols(variants_in_window) <- mcols(variants_genomic)
   names(variants_in_window) <- names(variants_genomic)
 
-  mutated_seq <- if (any_ALT_on_guides) {
+  mutated_seq <- if (any(ALT_on_genome)) {
     replaceAt(genomic_seq,
-              at = ranges(variants_in_window),
-              value = DNAStringSet(variants_genomic$ALT))
+              at = ranges(variants_in_window[ALT_on_genome]),
+              value = DNAStringSet(variants_genomic$ALT[ALT_on_genome]))
   } else { genomic_seq }
-  coordinate_map <- if (any_ALT_on_guides) {
-    build_variant_layout(variants_in_window, nchar(genomic_seq))
+  coordinate_map <- if (any(ALT_on_genome)) {
+    build_variant_layout(variants_in_window[ALT_on_genome], nchar(genomic_seq))
   } else {
     GRanges("target_seq", IRanges(1, nchar(genomic_seq)),
             source = "genomic", origin_id = "genomic",

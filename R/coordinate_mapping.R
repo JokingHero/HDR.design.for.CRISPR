@@ -108,6 +108,7 @@ build_variant_layout <- function(variants_in_window, seq_len) {
 #' @param target A GRanges object with ranges relative to the mutated sequence.
 #' @param coordinate_map The map created by `map_variants`.
 #' @param window_genomic The GRanges object for the entire genomic window.
+#' @param variants_genomic The GRanges of the variants with genomic coordinates.
 #' @return A data.frame containing the original information for each target that
 #'   could be successfully mapped, with an added 'coords' metadata column.
 #'   The 'coords' column is a semicolon-separated string detailing the genomic

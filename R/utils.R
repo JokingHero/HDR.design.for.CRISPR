@@ -394,8 +394,6 @@ design_probes <- function(s, genomic_context, coordinate_map, variants_genomic,
   # 4. Map filtered probe ranges from sequence coordinates to genomic coordinates
   # Create a temporary GRanges object for probes relative to sequence `s`
   probes_on_s <- GRanges("target_seq", ranges = filtered_ranges)
-
-  # Use the robust mapping function (originally for guides) to get genomic coordinates
   final_probes <- remap_target_to_genomic(
     target = probes_on_s,
     coordinate_map = coordinate_map,

@@ -9,7 +9,7 @@ get_guides_and_scores(
   design_name,
   cut_distance_max,
   genome,
-  any_ALT_on_guides,
+  ALT_on_genome,
   score_efficiency = TRUE
 )
 }
@@ -23,7 +23,7 @@ Must have an 'ALT' metadata column.}
 
 \item{genome}{A BSgenome object for sequence retrieval.}
 
-\item{any_ALT_on_guides}{whether any ALT variant is on the guides}
+\item{ALT_on_genome}{whether any ALT variant is on the guides}
 
 \item{score_efficiency}{A logical flag. If TRUE, calculate efficiency scores.}
 }

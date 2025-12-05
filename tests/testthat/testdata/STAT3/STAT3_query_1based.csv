@@ -1,2 +1,2 @@
-names,coords,REF,ALT
-Variant 1,chr17:42346635-42346635,G,A
+names,coords,REF,ALT,ALT_on_genome,ALT_on_templates
+Variant 1,chr17:42346635-42346635,G,A,TRUE,FALSE

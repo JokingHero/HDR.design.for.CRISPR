@@ -11,7 +11,7 @@ design_hdr(
   variant_end,
   REF,
   ALT,
-  ALT_on_guides,
+  ALT_on_genome,
   ALT_on_templates,
   output_dir,
   annotation,
@@ -49,7 +49,7 @@ design_hdr(
 
 \item{ALT}{The desired mutated bases, e.g., "G".}
 
-\item{ALT_on_guides}{A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.}
+\item{ALT_on_genome}{A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.}
 
 \item{ALT_on_templates}{A vector of T/F for each variant. This should match your desired outcome. Select true when correcting alt variant.}
 

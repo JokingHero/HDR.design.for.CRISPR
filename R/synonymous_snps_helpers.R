@@ -280,8 +280,8 @@ annotate_variants_with_cds <- function(
             status <- "AA_CHANGE_BEFORE_PTC"
             # SNV is before the PTC, so its effect can be calculated.
           }
-        } else { # state is "AA change"
-          status <- "AA_CHANGE"
+        } else {
+          status <- "SYNONYMOUS"
         }
       }
 

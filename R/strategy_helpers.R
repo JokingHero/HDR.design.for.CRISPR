@@ -362,8 +362,17 @@ create_template_and_probes <- function(selected_muts,
   guide_stats <- assess_guide_disruption(current_guide, final_hdr_seq)
 
   # 4. Create Template Object
+  hdr_template_coord_map <- build_variant_layout(
+    muts_to_inject, nchar(source_genomic_seq))
+  template_coords <- remap_target_to_genomic(
+    target = GRanges("target_seq", ranges = 1:width(edit_region)),
+    coordinate_map = hdr_template_coord_map,
+    window_genomic = edit_region,
+    variants_genomic = c(selected_muts, variants_genomic_on_ts))
+
   template_gr <- edit_region
   names(template_gr) <- design_id
+  template_gr$coords <- template_coords$coords
   template_gr$sequence <- as.character(final_hdr_seq)
   template_gr$snvs_introduced <- snvs_introduced
   template_gr$pam_disrupted_count <- guide_stats$pam_disrupted
@@ -379,9 +388,6 @@ create_template_and_probes <- function(selected_muts,
   probes_out <- GRanges()
   # If there are no muts to cover, no point in HDR probes
   if (do_probes) {
-    hdr_template_coord_map <- build_variant_layout(
-      muts_to_inject, nchar(source_genomic_seq))
-
     candidates <- design_probes(
       s = final_hdr_seq,
       genomic_context = edit_region,
@@ -391,6 +397,8 @@ create_template_and_probes <- function(selected_muts,
       len_min = probe_params$len_min, len_max = probe_params$len_max)
 
     if (nrow(candidates) > 0) {
+      mcols(selected_muts) <- NULL
+      mcols(variants_genomic_on_ts) <- NULL
       probes_out <- select_probes(
         muts_to_cover = c(selected_muts, variants_genomic_on_ts),
         candidates = candidates,

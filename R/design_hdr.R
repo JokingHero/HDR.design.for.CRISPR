@@ -10,7 +10,7 @@
 #' @param variant_end Position ends of the variants on the chromosome
 #' @param REF The original bases on the genome, e.g., "A".
 #' @param ALT The desired mutated bases, e.g., "G".
-#' @param ALT_on_guides A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.
+#' @param ALT_on_genome A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.
 #' @param ALT_on_templates A vector of T/F for each variant. This should match your desired outcome. Select true when correcting alt variant.
 #' @param output_dir Path to the directory where output files will be saved.
 #' @param annotation File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with `AnnotationDbi::loadDb`.
@@ -50,7 +50,7 @@ design_hdr <- function(
   variant_end,
   REF,
   ALT,
-  ALT_on_guides,
+  ALT_on_genome,
   ALT_on_templates,
   output_dir,
   annotation,
@@ -77,7 +77,7 @@ design_hdr <- function(
   set.seed(seed) # Ensure reproducible randomness
 
   stopifnot(length(variant_start) == length(variant_end))
-  stopifnot(length(ALT_on_guides) == length(variant_start))
+  stopifnot(length(ALT_on_genome) == length(variant_start))
   stopifnot(length(ALT_on_templates) == length(variant_start))
   stopifnot(length(ALT) == length(variant_start))
   stopifnot(length(REF) == length(variant_start))
@@ -109,8 +109,8 @@ design_hdr <- function(
 
   message("Finding and scoring guides...")
   guides <- get_guides_and_scores(
-    variants_genomic[ALT_on_guides], design_name,
-    cut_distance_max, genome, any(ALT_on_guides), score_efficiency)
+    variants_genomic, design_name,
+    cut_distance_max, genome, ALT_on_genome, score_efficiency)
 
   # Universal guide filter logic
   if (filter_to_guide != "") {
@@ -304,8 +304,8 @@ design_hdr <- function(
     message("Designing NHEJ control probes...")
     # These probes are the probes that need to verify whether HDR is positively
     # integrated in negative fashion
-    # they are on genomic sequence "ALT_on_guides"
-    variants_for_guides_genomic <- variants_genomic[ALT_on_guides]
+    # they are on genomic sequence "ALT_on_genome"
+    variants_for_guides_genomic <- variants_genomic[ALT_on_genome]
     variants_for_guides_in_editw <- pmapToTranscripts(variants_for_guides_genomic, edit_region)
     mcols(variants_for_guides_in_editw) <- mcols(variants_for_guides_genomic)
     names(variants_for_guides_in_editw) <- names(variants_for_guides_genomic)
@@ -370,6 +370,8 @@ design_hdr <- function(
   }
 
   message("Exporting results...")
+  variants_genomic$ALT_on_genome <- ALT_on_genome
+  variants_genomic$ALT_on_templates <- ALT_on_templates
   export_design_results(
     output_dir, design_name,
     variants_genomic, var_data, guides, repair_template,
