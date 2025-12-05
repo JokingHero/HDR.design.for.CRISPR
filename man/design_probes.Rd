@@ -46,3 +46,7 @@ translate their positions back to the original genomic coordinates. This
 approach correctly handles cases where \code{s} contains indels relative to the
 original genomic sequence.
 }
+\details{
+It also strictly filters out probes where a Variant/SNV overlaps the
+first 4bp or last 4bp of the probe sequence to ensure stability.
+}

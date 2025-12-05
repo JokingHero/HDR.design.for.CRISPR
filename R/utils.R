@@ -353,6 +353,9 @@ gc_fract <- function(x) letterFrequency(x, letters = "CG", as.prob = TRUE)[, 1]
 #' approach correctly handles cases where `s` contains indels relative to the
 #' original genomic sequence.
 #'
+#' It also strictly filters out probes where a Variant/SNV overlaps the
+#' first 4bp or last 4bp of the probe sequence to ensure stability.
+#'
 #' @param s A DNAString object representing the sequence to design probes on.
 #' @param genomic_context A GRanges object of length 1 representing the original
 #'   genomic region from which `s` was derived.
@@ -391,14 +394,61 @@ design_probes <- function(s, genomic_context, coordinate_map, variants_genomic,
   filtered_ranges <- probe_ranges[keep_indices]
   filtered_tms <- tms[keep_indices]
 
+  # Create a GRanges of the candidate probes relative to 'target_seq'
+  probes_on_s <- GRanges("target_seq", ranges = filtered_ranges)
+  variant_regions <- coordinate_map[coordinate_map$source == "variant"]
+  hits <- findOverlaps(probes_on_s, variant_regions)
+
+  if (length(hits) > 0) {
+    p_idx <- queryHits(hits)
+    v_idx <- subjectHits(hits)
+
+    # Get the specific ranges involved in the overlap
+    p_ranges_hits <- ranges(probes_on_s)[p_idx]
+    v_ranges_hits <- ranges(variant_regions)[v_idx]
+
+    # Calculate the intersection (the part of the variant strictly inside the probe)
+    overlaps <- pintersect(p_ranges_hits, v_ranges_hits)
+
+    # Calculate the start/end of the variant overlap *relative* to the probe start (1-based)
+    # e.g., if probe is 100-120 and variant overlap is 100-101, rel_start is 1
+    rel_start <- start(overlaps) - start(p_ranges_hits) + 1
+    rel_end   <- end(overlaps) - start(p_ranges_hits) + 1
+    probe_lens <- width(p_ranges_hits)
+
+    # Define "Edge": First 4 bp OR Last 4 bp
+    # Note: (probe_lens - 3) gives the start of the last 4 bases
+    # (e.g., length 20: 17, 18, 19, 20 are the last 4).
+    is_edge_overlap <- (rel_start <= 4) | (rel_end >= (probe_lens - 3))
+
+    # Identify indices of probes that fail this check
+    bad_probe_indices <- unique(p_idx[is_edge_overlap])
+
+    if (length(bad_probe_indices) > 0) {
+      # Remove them from our filtered lists
+      keep_mask <- setdiff(seq_along(filtered_ranges), bad_probe_indices)
+
+      if (length(keep_mask) == 0) {
+        return(GRanges())
+      }
+
+      filtered_probes_ss <- filtered_probes_ss[keep_mask]
+      filtered_ranges <- filtered_ranges[keep_mask]
+      filtered_tms <- filtered_tms[keep_mask]
+      # Re-create the GRanges for the mapping step below
+      probes_on_s <- probes_on_s[keep_mask]
+    }
+  }
+
   # 4. Map filtered probe ranges from sequence coordinates to genomic coordinates
   # Create a temporary GRanges object for probes relative to sequence `s`
-  probes_on_s <- GRanges("target_seq", ranges = filtered_ranges)
   final_probes <- remap_target_to_genomic(
     target = probes_on_s,
     coordinate_map = coordinate_map,
     window_genomic = genomic_context,
     variants_genomic = variants_genomic)
+
+  # second round of filtering - we want to keep
 
   # The remap_target_to_genomic function discards metadata, so we re-attach it.
   # The order is preserved.
