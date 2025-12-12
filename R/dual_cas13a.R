@@ -383,25 +383,14 @@ get_offtarget_count_MM0 <- function(guides_target_seq, offtargets_seq) {
   return(ot_count)
 }
 
-# annotation = "../../genomes/Homo_sapiens/Homo_sapiens.sqlite"
-# genome = BSgenome.Hsapiens.ENSEMBL.GRChg38.p14primaryassembly::BSgenome.Hsapiens.ENSEMBL.GRChg38.p14primaryassembly
-#
-# txdb <- if (tools::file_ext(annotation) %in% c("gff3", "gtf")) {
-#   suppressWarnings(txdbmaker::makeTxDbFromGFF(annotation))
-# } else {
-#   suppressWarnings(AnnotationDbi::loadDb(annotation))
-# }
-
-library(Biostrings)
-library(GenomicFeatures)
-library(BSgenome)
-library(IRanges)
-# offtargets_rds = c("../../genomes/Homo_sapiens/Homo_sapiens.transcriptome.rds")
-# offtargets_fasta = c() # Empty for testing purpose but users will upload
-input_fasta = testthat::test_path("testdata", "kras.fa")
-position = 600
-primer3_path = "/home/ai/Soft/primer3/src/primer3_core"
-design_dual_cas13a(input_fasta, position, primer3_path = primer3_path)
+# library(Biostrings)
+# library(GenomicFeatures)
+# library(BSgenome)
+# library(IRanges)
+# input_fasta = testthat::test_path("testdata", "kras.fa")
+# position = 600
+# primer3_path = "/home/ai/Soft/primer3/src/primer3_core"
+# design_dual_cas13a(input_fasta, position, primer3_path = primer3_path)
 
 #' Design dual Cas13a Guide Self-Folding
 #'
