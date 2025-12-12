@@ -42,7 +42,7 @@ parse_primer3_system2_output <- function(output_lines) {
     n_ret <- as.numeric(tags["PRIMER_PAIR_NUM_RETURNED"])
 
     if (!is.na(n_ret) && n_ret > 0) {
-      seq_id    <- tags["SEQUENCE_ID"]
+      seq_id    <- trimws(tags["SEQUENCE_ID"])
       int_oligo <- tags["SEQUENCE_INTERNAL_OLIGO"]
 
       # Iterate over pairs (0 to N-1)
@@ -392,15 +392,16 @@ get_offtarget_count_MM0 <- function(guides_target_seq, offtargets_seq) {
 #   suppressWarnings(AnnotationDbi::loadDb(annotation))
 # }
 
-# library(Biostrings)
-# library(GenomicFeatures)
-# library(BSgenome)
-# library(IRanges)
+library(Biostrings)
+library(GenomicFeatures)
+library(BSgenome)
+library(IRanges)
 # offtargets_rds = c("../../genomes/Homo_sapiens/Homo_sapiens.transcriptome.rds")
 # offtargets_fasta = c() # Empty for testing purpose but users will upload
-# input_fasta = testthat::test_path("testdata", "kras.fa")
-# position = 600
-# primer3_path = "/home/ai/Soft/primer3/src/primer3_core"
+input_fasta = testthat::test_path("testdata", "kras.fa")
+position = 600
+primer3_path = "/home/ai/Soft/primer3/src/primer3_core"
+design_dual_cas13a(input_fasta, position, primer3_path = primer3_path)
 
 #' Design dual Cas13a Guide Self-Folding
 #'
@@ -469,14 +470,17 @@ design_dual_cas13a <- function(
     primers_per_guide,
     primer3_path)
   if (nrow(primers) == 0) stop("Primer3 failed to find valid primers.")
-  target_match <- match(primers$SEQUENCE_INTERNAL_OLIGO, as.character(guide_target_seq))
+  guide_indices <- as.numeric(primers$SEQUENCE_ID)
   # I think for Dual Cas13a it on 5' end of target
   # in normal Cas13a its on 3' end of target
-  primers$MISMATCH_POSITION <- allowed_positions[valid_idx][target_match]
-  primers$SPACER_START <- start(guide_target)[target_match]
-  primers$SPACER_LENGTH <- width(guide_target)[target_match]
-  primers$PFS <- as.character(
+  primers$MISMATCH_POSITION <- allowed_positions[valid_idx][guide_indices]
+  primers$SPACER_START <- start(guide_target)[guide_indices]
+  primers$SPACER_LENGTH <- width(guide_target)[guide_indices]
+  guide_pfs <- as.character(
     methods::as(Views(target, flank(guide_target, width = 1)), "DNAStringSet"))
+  primers$PFS <- guide_pfs[guide_indices]
+
+
   # Linker is 5'-3'
   linker <- Biostrings::RNAStringSet(DNAString(linker))
   # spacer is 5'-3'
