@@ -520,6 +520,9 @@ design_dual_cas13a <- function(
   # WHAT do we want to return and in which order?!
   # In thermodynamics lower values is stringer interaction.
   # G at 28 is decreasing efficiency - add a column like that - hard filter
+  # I removed this filter because in dual-cas13a we don't really know where is PFS
+  # I also removed "linker_is_open" because in their workflow they rise temperature to open it
+  # so it does not matter I think
 
   # Interpreting the RNAfold:
   # If we have () in the Structure - potential linker issue - hard filter
@@ -534,16 +537,14 @@ design_dual_cas13a <- function(
   # dG_open_spacer - Lower is better (less energy to open spacer)
   # dG_open_target - Lower is better (less energy to open target)
   final_dt <- final_dt[order(
-    final_dt$PFS == "G",
-    -final_dt$linker_is_open,
     -final_dt$MFE_is_over_minus8,
     final_dt$dG_binding,
     final_dt$dG_open_target
   ), ]
-  sel_cols <- c("PFS", "linker_is_open", "MFE", "dG_binding", "dG_duplex", "dG_open_spacer", "dG_open_target",
-                "MISMATCH_POSITION", "SPACER_WITH_LINKER", "SPACER_START", "SPACER_LENGTH","PRODUCT_SIZE", "PRIMER_FORWARD_SEQUENCE_WITH_T7", "PRIMER_REVERSE_SEQUENCE",
+  sel_cols <- c("MISMATCH_POSITION", "SPACER_WITH_LINKER", "SPACER_START", "SPACER_LENGTH","PRODUCT_SIZE", "PRIMER_FORWARD_SEQUENCE_WITH_T7", "PRIMER_REVERSE_SEQUENCE",
                 "PRIMER_FORWARD_START", "PRIMER_FORWARD_LENGTH", "PRIMER_REVERSE_START", "PRIMER_REVERSE_LENGTH",
-                "PRIMER_FORWARD_TM", "PRIMER_REVERSE_TM", "PRIMER_FORWARD_GC", "PRIMER_REVERSE_GC")
+                "PRIMER_FORWARD_TM", "PRIMER_REVERSE_TM", "PRIMER_FORWARD_GC", "PRIMER_REVERSE_GC",
+                "MFE", "Structure", "dG_binding", "dG_duplex", "dG_open_spacer", "dG_open_target")
   final_dt <- final_dt[, sel_cols]
   return(final_dt)
 }
