@@ -6,6 +6,9 @@
 \usage{
 assert_vcf_valid(variants)
 }
+\arguments{
+\item{variants}{Your variants to asses}
+}
 \description{
 This runs AFTER correction. If this fails, the software stops.
 }

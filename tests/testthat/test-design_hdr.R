@@ -75,7 +75,8 @@ test_that("End-to-end test for STAT3 (minus strand)", {
 
 test_that("End-to-end test for CTNNB1 (plus strand)", {
   expected_files_dir <- testthat::test_path("testdata", "CTNNB1")
-  output_dir <- tempfile(pattern = "CTNNB1_plus_strand_test_")
+  output_dir <- "ctnnb1_regenerate_test"
+  unlink(output_dir, recursive = TRUE)
   dir.create(output_dir)
 
   # Using a known transcript and mutation for CTNNB1

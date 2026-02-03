@@ -249,8 +249,8 @@ annotate_variants_with_cds <- function(
       codon_num <- NA_integer_
       ref_codon_dna <- DNAString("NNN")
       frame_in_codon <- NA_integer_
-      aa_ref <- "NA"
-      aa_alt <- "NA"
+      aa_ref <- NA_character_
+      aa_alt <- NA_character_
 
       if (is.null(info)) {
         # Case 1. Unaffected Transcript.
