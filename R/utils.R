@@ -400,8 +400,8 @@ design_probes <- function(s, genomic_context, coordinate_map, variants_genomic,
   hits <- findOverlaps(probes_on_s, variant_regions)
 
   if (length(hits) > 0) {
-    p_idx <- queryHits(hits)
-    v_idx <- subjectHits(hits)
+    p_idx <- S4Vectors::queryHits(hits)
+    v_idx <- S4Vectors::subjectHits(hits)
 
     # Get the specific ranges involved in the overlap
     p_ranges_hits <- ranges(probes_on_s)[p_idx]

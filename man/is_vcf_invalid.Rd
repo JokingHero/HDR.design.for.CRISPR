@@ -2,8 +2,10 @@
 % Please edit documentation in R/variants.R
 \name{is_vcf_invalid}
 \alias{is_vcf_invalid}
-\title{Find variants that are not represented in a VCF-compliant manner.}
+\title{Check for VCF compliance (Pure Predicate)}
 \usage{
+is_vcf_invalid(variants)
+
 is_vcf_invalid(variants)
 }
 \arguments{
@@ -11,9 +13,14 @@ is_vcf_invalid(variants)
 and 'ALT' metadata columns.}
 }
 \value{
+Logical vector (TRUE = Invalid/Needs Fixing, FALSE = Good)
+
 An integer vector of indices corresponding to non-compliant variants.
 }
 \description{
+Returns TRUE if the variant is INVALID.
+Does NOT throw errors (so we can use it to identify rows to fix).
+
 This function checks for two common VCF representation rules:
 \enumerate{
 \item REF and ALT alleles must not be empty strings.
