@@ -48,7 +48,6 @@ test_that("End-to-end test for STAT3 (minus strand)", {
   # 2. Compare content of each file
   if (length(output_basenames) > 0) {
     for (filename in output_basenames) {
-      filename <- output_basenames[7]
       output_filepath <- file.path(output_dir, filename)
       expected_filepath <- file.path(expected_files_dir, filename)
 

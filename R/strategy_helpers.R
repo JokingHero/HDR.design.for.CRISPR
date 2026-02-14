@@ -53,8 +53,9 @@ select_non_overlapping_mutations <- function(gr, N) {
 #' @param optimization_scheme Typically "balanced"
 #' @param benign_cadd_threshold Numeric. CADD score below which a variant is
 #'   considered high-confidence benign. Default 15.
-#' @param ag_threshold Numeric. AlphaGenome magnitude above which a variant
-#'   is considered risky. Default 0.2.
+#' @param ag_threshold Numeric. AlphaGenome Composite Score above which a variant
+#'   is considered risky. Default 1.5 and implies strong signal in at least one
+#'   modality and moderate support in others. Research suggests >1.0 is moderate risk.
 #' @return The augmented var_data GRanges object with standardized columns:
 #'   `penalty_score`, `disruption_tier`, `safety_tier`, etc.
 #' @keywords internal
@@ -62,18 +63,12 @@ select_non_overlapping_mutations <- function(gr, N) {
 augment_var_data_with_scores <- function(var_data,
                                          optimization_scheme = "balanced",
                                          benign_cadd_threshold = 15,
-                                         ag_threshold = 0.9) {
+                                         ag_threshold = 1.5) {
   if (length(var_data) == 0) return(var_data)
 
   # ============================================================================
   # 1. GUIDE POSITION (Guaranteed Feature)
   # ============================================================================
-  # Tier	Positions	Disruption Potential	Mechanism
-  # Tier 1	22–23 (PAM)	Lethal (100%)	Binding Check: Without the NGG anchor, Cas9 cannot initiate the search. No binding = no cut.
-  # Tier 2	17–20	Critical (>95%)	R-Loop Initiation: These bases must pair immediately after PAM binding to "nucleate" the RNA:DNA hybrid. A mismatch here usually causes immediate ejection of the complex.
-  # Tier 3	13–16	Severe (70–90%)	The Kinetic Gate: Recent kinetic models identify this region as the primary barrier for conformational activation (HNH domain movement). Mismatches here don't just reduce binding affinity; they physically block the enzyme from transitioning into the "cutting" state.
-  # Tier 4	10–12	Moderate (40–60%)	Seed Extension: Mismatches here destabilize the complex but are often tolerated if the rest of the binding energy is strong (the "Goldilocks" zone).
-  # Tier 5	1–9	Low (<20%)	The Tail: This region is loosely held. Mismatches here rarely prevent cleavage unless there are multiple consecutive mismatches (3+) or the guide has very weak intrinsic binding energy.
   var_data$disruption_tier <- 5
   var_data$disruption_tier[var_data$position_in_guide >= 10] <- 4
   var_data$disruption_tier[var_data$position_in_guide >= 13] <- 3
@@ -83,16 +78,13 @@ augment_var_data_with_scores <- function(var_data,
   # ============================================================================
   # 2. DBSNP / KNOWN VARIATION (Optional Feature)
   # ============================================================================
-  # Logic: If dbSNP is missing, everyone is "Unknown" (3).
   var_data$dbSNP_priority <- 3
 
   if (!is.null(var_data$dbSNP)) {
     is_known_variant <- sapply(var_data$dbSNP, function(df) {
       if (nrow(df) > 0) any(df$is_known_variant) else NA
     })
-    # Known locus but different allele -> Tier 2
     var_data$dbSNP_priority[!is.na(is_known_variant) & !is_known_variant] <- 2
-    # Known locus and matching allele -> Tier 1 (Gold Standard)
     var_data$dbSNP_priority[is_known_variant] <- 1
   }
 
@@ -107,42 +99,53 @@ augment_var_data_with_scores <- function(var_data,
   # ============================================================================
   # 4. CADD SCORES (Optional Feature)
   # ============================================================================
-  # Logic: If CADD is missing, impute a "Neutral/Borderline" score (15).
-  # This ensures that if we compare a No-Data SNP vs a High-Risk SNP (CADD=30),
-  # the No-Data SNP wins. If we compare No-Data vs Low-Risk (CADD=5), Low-Risk wins.
   if (is.null(var_data$CADD)) var_data$CADD <- NA
-
   var_data$cadd_imputed <- var_data$CADD
-  var_data$cadd_imputed[is.na(var_data$cadd_imputed)] <- 15 # Borderline
+  var_data$cadd_imputed[is.na(var_data$cadd_imputed)] <- 15
 
   # ============================================================================
-  # 5. ALPHAGENOME (Splicing Only)
+  # 5. ALPHAGENOME (Splicing Composite Score)
   # ============================================================================
-  # Initialize zeros (Neutral)
-  ag_splice_usage <- rep(0, length(var_data))
-  ag_splice_sites <- rep(0, length(var_data))
+  # Research Update: We now use the Composite Score (Sites + Usage + Junctions/5).
+  # This single number captures magnitude, motif disruption, and isoform switching.
 
-  # Extract Usage (Isoform regulation)
-  if ("alphagenome_SPLICE_SITE_USAGE" %in% names(mcols(var_data))) {
-    raw <- var_data$alphagenome_SPLICE_SITE_USAGE
-    # Values are already absolute and aggregated (Max or 95%) by previous function
-    ag_splice_usage[!is.na(raw)] <- raw[!is.na(raw)]
+  ag_score <- rep(0, length(var_data))
+
+  if ("alphagenome_composite_score" %in% names(mcols(var_data))) {
+    raw <- var_data$alphagenome_composite_score
+    ag_score[!is.na(raw)] <- raw[!is.na(raw)]
+  } else if ("ag_composite_score" %in% names(mcols(var_data))) {
+    raw <- var_data$ag_composite_score
+    ag_score[!is.na(raw)] <- raw[!is.na(raw)]
+  } else {
+    # Fallback for legacy data or if composite calculation failed:
+    # Try to sum individually if columns exist
+    val_sites <- if ("alphagenome_sites_max" %in% names(mcols(var_data))) {
+      var_data$alphagenome_sites_max
+    } else if ("alphagenome_SPLICE_SITES" %in% names(mcols(var_data))) {
+      var_data$alphagenome_SPLICE_SITES
+    } else 0
+
+    val_usage <- if ("alphagenome_usage_max" %in% names(mcols(var_data))) {
+      var_data$alphagenome_usage_max
+    } else if ("alphagenome_SPLICE_SITE_USAGE" %in% names(mcols(var_data))) {
+      var_data$alphagenome_SPLICE_SITE_USAGE
+    } else 0
+
+    val_junctions <- if ("alphagenome_junctions_max" %in% names(mcols(var_data))) {
+      var_data$alphagenome_junctions_max
+    } else if ("alphagenome_SPLICE_JUNCTIONS" %in% names(mcols(var_data))) {
+      var_data$alphagenome_SPLICE_JUNCTIONS
+    } else 0
+
+    # Note: treating NA as 0 for fallback
+    val_sites[is.na(val_sites)] <- 0
+    val_usage[is.na(val_usage)] <- 0
+    val_junctions[is.na(val_junctions)] <- 0
+    ag_score <- val_sites + val_usage + (val_junctions / 5)
   }
-
-  # Extract Sites (Physical Motif Creation/Destruction)
-  if ("alphagenome_SPLICE_SITES" %in% names(mcols(var_data))) {
-    raw <- var_data$alphagenome_SPLICE_SITES
-    ag_splice_sites[!is.na(raw)] <- raw[!is.na(raw)]
-  }
-
-  # Risk Flag:
-  # Passes if ANY individual score exceeds the threshold.
-  var_data$is_ag_risky <- (ag_splice_usage > ag_threshold) |
-    (ag_splice_sites > ag_threshold)
-
-  # Tie-breaker Score (Max Magnitude):
-  # Used for sorting two "safe" SNPs (e.g., 0.01 vs 0.15)
-  var_data$ag_max_score <- pmax(ag_splice_usage, ag_splice_sites)
+  var_data$ag_composite_score <- ag_score
+  var_data$ag_impact_score <- ag_score
 
   # ============================================================================
   # 6. FINAL SAFETY TIER (The "Meta" Feature)
@@ -152,34 +155,34 @@ augment_var_data_with_scores <- function(var_data,
   # 3 = Neutral / No Data (Imputed CADD + No AG + No NC Overlap)
   # 4 = Predicted Risky (High CADD or High AG)
   # 5 = Structural/Annotation Risk (Non-coding overlap)
-  tier <- rep(3, length(var_data)) # Default to Neutral
+  tier <- rep(3, length(var_data))
 
   # Risk Factors
-  is_risky_pred <- (var_data$cadd_imputed > benign_cadd_threshold) | var_data$is_ag_risky
+  is_ag_risky <- ag_score > ag_threshold
+  is_risky_pred <- (var_data$cadd_imputed > benign_cadd_threshold) | is_ag_risky
   tier[is_risky_pred] <- 4
   tier[var_data$has_nc_overlap] <- 5
+
   # Safety Factors
-  has_real_data <- !is.na(var_data$CADD) # Proxy for "Is this Human/Mouse?"
+  has_real_data <- !is.na(var_data$CADD)
   is_low_cadd <- var_data$cadd_imputed < benign_cadd_threshold
+
   # Predicted Safe: Needs Low CADD AND Low AG AND No Overlap
   tier[has_real_data & is_low_cadd & !is_risky_pred & !var_data$has_nc_overlap] <- 2
+
   # Known Benign Overrides predictions
   tier[var_data$dbSNP_priority == 1 & !var_data$has_nc_overlap] <- 1
   var_data$safety_tier <- tier
 
   # ============================================================================
-  # 2. CALCULATE PRIORITY GROUP (Switch Case)
+  # 7. CALCULATE PRIORITY GROUP (Switch Case)
   # ============================================================================
 
-  # Initialize with a high number (lowest priority)
   prio <- rep(99, length(var_data))
   d_tier <- var_data$disruption_tier
   s_tier <- var_data$safety_tier
 
   if (optimization_scheme == "balanced") {
-    # ---------------------------------------------------------
-    # STRATEGY: BALANCED (Smart Hierarchy)
-    # ---------------------------------------------------------
     # 1. Platinum: PAM/Crit (1-2) + Benign/HighConf (1-2)
     prio[d_tier <= 2 & s_tier <= 2] <- 1
     # 2. Gold: Seed (3) + Benign/HighConf (1-2)
@@ -188,41 +191,33 @@ augment_var_data_with_scores <- function(var_data,
     prio[d_tier <= 2 & s_tier == 3] <- 3
     # 4. Bronze: Seed (3) + Neutral (3)
     prio[d_tier == 3 & s_tier == 3] <- 4
-    # 5. Iron: Distal (4-5) + Benign/HighConf (1-2) -> Safe Fillers
+    # 5. Iron: Distal (4-5) + Benign/HighConf (1-2)
     prio[d_tier >= 4 & s_tier <= 2] <- 5
-    # 6. Lead: Distal (4-5) + Neutral (3) -> Neutral Fillers
+    # 6. Lead: Distal (4-5) + Neutral (3)
     prio[d_tier >= 4 & s_tier == 3] <- 6
-    # 7. Maverick: PAM (1-2) + Risky (4) -> Effective but Toxic (Last Resort)
+    # 7. Maverick: PAM (1-2) + Risky (4)
     prio[d_tier <= 2 & s_tier == 4] <- 7
-    # 8. Radioactive: Everything else (Risky Seed/Distal or Structural Tier 5)
+    # 8. Radioactive: Everything else
     prio[s_tier >= 4 & d_tier >= 3] <- 8
     prio[s_tier == 5] <- 9
 
   } else if (optimization_scheme == "disruption_first") {
-    # ---------------------------------------------------------
-    # STRATEGY: DISRUPTION FIRST (Hunter)
-    # ---------------------------------------------------------
-    # 1. Guaranteed Kill: PAM (1-2), even if Risky (Safety 1-4)
+    # 1. Guaranteed Kill: PAM (1-2)
     prio[d_tier <= 2 & s_tier <= 4] <- 1
-    # 2. Likely Kill: Seed (3), even if Risky (Safety 1-4)
+    # 2. Likely Kill: Seed (3)
     prio[d_tier == 3 & s_tier <= 4] <- 2
     # 3. Weak: Distal (4-5)
     prio[d_tier >= 4 & s_tier <= 4] <- 3
-    # 4. Invalid: Structural Failures (Safety 5)
+    # 4. Invalid
     prio[s_tier == 5] <- 4
   } else if (optimization_scheme == "safety_first") {
-    # ---------------------------------------------------------
-    # STRATEGY: SAFETY FIRST (Conservationist)
-    # ---------------------------------------------------------
-    # Strictly follows Safety Tier.
-    # Within Tier 1, position will be handled by the selector function tie-breaker.
     prio[s_tier == 1] <- 1
     prio[s_tier == 2] <- 2
     prio[s_tier == 3] <- 3
     prio[s_tier == 4] <- 4
     prio[s_tier == 5] <- 5
   } else {
-    stop("Invalid optimization_scheme. Choose 'balanced', 'disruption_first', or 'safety_first'.")
+    stop("Invalid optimization_scheme.")
   }
 
   var_data$priority_group <- prio
@@ -244,25 +239,21 @@ find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
       guide_snps$priority_group,
       guide_snps$disruption_tier,
       guide_snps$cadd_imputed,
+      guide_snps$ag_impact_score,
       -guide_snps$position_in_guide
     ),
-    # CRITICAL: Within the PAM bucket (Group 1), we still sort by Safety Tier.
-    # This means if we have a Safe PAM and a Toxic PAM, we pick the Safe one.
-    # But because Toxic PAM is Group 1 and Safe Seed is Group 2, Toxic PAM wins.
     "disruption_first" = order(
       guide_snps$priority_group,
       guide_snps$safety_tier,
-      guide_snps$cadd_imputed
+      guide_snps$cadd_imputed,
+      guide_snps$ag_impact_score
     ),
-    # CRITICAL: Within the Safe bucket (Group 1), we sort by Disruption Tier.
-    # Safe PAM > Safe Seed.
-    # But Safe Seed (Group 1) > Toxic PAM (Group 4).
     "safety_first" = order(
       guide_snps$priority_group,
       guide_snps$disruption_tier,
+      guide_snps$ag_impact_score,
       -guide_snps$position_in_guide
     ),
-
     stop("Invalid optimization_scheme")
   )
 
@@ -330,6 +321,7 @@ create_template_and_probes <- function(selected_muts,
   muts_to_inject <- variants_in_editw
   snvs_introduced <- ""
   total_cadd <- 0
+  max_ag_score <- 0
   total_snp_quality <- 0
   any_overlaps_nc <- FALSE
 
@@ -346,6 +338,15 @@ create_template_and_probes <- function(selected_muts,
     total_cadd <- sum(selected_muts$cadd_imputed, na.rm = TRUE)
     total_snp_quality <- sum(selected_muts$dbSNP_priority, na.rm = TRUE)
     any_overlaps_nc <- any(selected_muts$has_nc_overlap)
+    if ("ag_composite_score" %in% names(mcols(selected_muts))) {
+      max_ag_score <- max(
+        selected_muts$ag_composite_score, na.rm = TRUE)
+      if (!is.finite(max_ag_score)) max_ag_score <- 0
+    } else if ("alphagenome_composite_score" %in% names(mcols(selected_muts))) {
+      max_ag_score <- max(
+        selected_muts$alphagenome_composite_score, na.rm = TRUE)
+      if (!is.finite(max_ag_score)) max_ag_score <- 0
+    }
   }
 
   # Inject all mutations to create the final HDR sequence
@@ -381,6 +382,7 @@ create_template_and_probes <- function(selected_muts,
   template_gr$aln_guide <- guide_stats$aln_guide
   template_gr$aln_template <- guide_stats$aln_template
   template_gr$total_cadd <- total_cadd
+  template_gr$max_alphagenome_score <- max_ag_score
   template_gr$any_overlaps_noncoding <- any_overlaps_nc
   template_gr$total_snp_quality_score <- total_snp_quality
 

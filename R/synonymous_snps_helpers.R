@@ -527,36 +527,69 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     stop("Python script seems to have completed, but the output file is missing or empty.\n",
              "Output:\n", paste(result, collapse = "\n"))
   }
-  quantile_score <- aggregated_score <- variant_id <- output_type <- NULL
+  quantile_score <- variant_id <- output_type <- NULL
   ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
+  required_input_cols <- c("variant_id", "output_type", "quantile_score")
+  if (!all(required_input_cols %in% names(ag_dt))) {
+    stop(
+      "AlphaGenome output is missing required columns: ",
+      paste(setdiff(required_input_cols, names(ag_dt)), collapse = ", ")
+    )
+  }
+  # 1. Take Absolute Value (Magnitude of effect)
+  # We care about distance from median (0), whether gain or loss of splicing.
+  ag_dt$quantile_score <- abs(ag_dt$quantile_score)
 
   has_context <- !is.null(alphagenome_context) && alphagenome_context != ""
-  if (has_context) {
-    ag_dt <- ag_dt[ag_dt$biosample_name == alphagenome_context | is.na(ag_dt$biosample_name), ]
+  if (has_context && "biosample_name" %in% names(ag_dt)) {
+    # If user wants specific tissue:
+    # - KEEP rows matching that tissue.
+    # - ALSO KEEP 'SPLICE_SITES'. Sites are based on DNA motifs and often don't have
+    #   tissue labels, but a broken motif is broken everywhere.
+    ag_dt <- ag_dt[
+      (ag_dt$biosample_name == alphagenome_context) |
+        (ag_dt$output_type == "SPLICE_SITES") |
+        is.na(ag_dt$biosample_name),
+    ]
   }
-  # --- 1. Handle Directionality ---
-  # We treat deviation from WT (magnitude) as the risk factor.
-  ag_dt$quantile_score <- abs(ag_dt$quantile_score)
+  # If NO context (Global): We keep ALL rows to find the "worst-case" tissue.
   ag_dt <- dplyr::group_by(ag_dt, variant_id, output_type)
-
-  # --- 2. Smart Aggregation ---
-
   ag_dt <- suppressMessages(dplyr::summarise(
     ag_dt,
-    aggregated_score = if (has_context) {
-      # Specific Context: Trust the Maximum signal
-      max(quantile_score, na.rm = TRUE)
-    } else {
-      # Global Context: Use 95th percentile to filter noise floor
-      stats::quantile(quantile_score, probs = 0.95, na.rm = TRUE)
-    }
+    max_score = max(quantile_score, na.rm = TRUE),
+    .groups = "drop"
   ))
-  ag_dt$output_type <- paste0("alphagenome_", ag_dt$output_type)
-  ag_dt <- tidyr::pivot_wider(
+  ag_dt$max_score[!is.finite(ag_dt$max_score)] <- 0
+
+  ag_wide <- tidyr::pivot_wider(
     ag_dt,
     id_cols = variant_id,
     names_from = output_type,
-    values_from = aggregated_score
+    values_from = max_score,
+    values_fill = 0)
+
+  required_cols <- c("SPLICE_SITES", "SPLICE_SITE_USAGE", "SPLICE_JUNCTIONS")
+  for (col in required_cols) {
+    if (!col %in% names(ag_wide)) ag_wide[[col]] <- 0
+  }
+
+  # Formula: Sites + Usage + (Junctions / 5)
+  # Junctions are normalized by 5 because raw junction counts have a larger dynamic range.
+  ag_wide$alphagenome_composite_score <- (
+    ag_wide$SPLICE_SITES +
+      ag_wide$SPLICE_SITE_USAGE +
+      (ag_wide$SPLICE_JUNCTIONS / 5.0)
+  )
+  ag_wide$alphagenome_sites_max <- ag_wide$SPLICE_SITES
+  ag_wide$alphagenome_usage_max <- ag_wide$SPLICE_SITE_USAGE
+  ag_wide$alphagenome_junctions_max <- ag_wide$SPLICE_JUNCTIONS
+  ag_wide <- dplyr::select(
+    ag_wide,
+    variant_id,
+    alphagenome_sites_max,
+    alphagenome_usage_max,
+    alphagenome_junctions_max,
+    alphagenome_composite_score
   )
 
   original_ids_order <- paste0(
@@ -565,9 +598,13 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     all_variants$REF, ">",
     all_variants$ALT)
 
-  ag_dt <- ag_dt[match(ag_dt$variant_id, original_ids_order), ]
-  ag_dt$variant_id <- NULL
-  return(ag_dt)
+  out <- data.frame(variant_id = original_ids_order, stringsAsFactors = FALSE)
+  out <- dplyr::left_join(out, ag_wide, by = "variant_id")
+  out$variant_id <- NULL
+  for (col in names(out)) {
+    if (is.numeric(out[[col]])) out[[col]][is.na(out[[col]])] <- 0
+  }
+  return(out)
 }
 
 #' Prepare Candidate Synonymous Mutations
@@ -670,7 +707,7 @@ prepare_candidate_snps <- function(
     } else if (organism(genome) == "Mus musculus") {
       "mouse"
     } else NA
-    if (!is.na(species) && alphagenome_context != "") {
+    if (!is.na(species)) {
       ag_dt <- annotate_mutations_with_alphagenome(
         all_variants, alphagenome_key, species, python_exec, alphagenome_context)
       mcols(all_variants) <- cbind(mcols(all_variants), ag_dt)

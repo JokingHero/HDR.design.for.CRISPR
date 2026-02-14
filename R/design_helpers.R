@@ -301,7 +301,7 @@ export_design_results <- function(
     if (is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
     # Assumption: total_snp_quality_score is the sum/max of safety tiers (Lower is Better)
     if (is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999
-
+    if (is.null(repair_template$max_alphagenome_score)) repair_template$max_alphagenome_score <- 0
     repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
 
     # --- BINNING (The "Minimum Viable Edit" Strategy) ---
@@ -334,7 +334,7 @@ export_design_results <- function(
         repair_template$disruption_bin,            # Primary: Efficacy Confidence
         repair_template$total_snp_quality_score,   # Secondary: Safety
         repair_template$n_snvs,                    # Tertiary: Parsimony
-        repair_template$total_cadd                 # Tie-breaker
+        repair_template$max_alphagenome_score      # Tie-breaker
       ),
 
       # STRATEGY 2: DISRUPTION FIRST
@@ -375,6 +375,7 @@ export_design_results <- function(
       "aln_template",
       "any_overlaps_noncoding",
       "total_cadd",
+      "max_alphagenome_score",
       "total_snp_quality_score",
       "sequence"
     )
@@ -385,6 +386,9 @@ export_design_results <- function(
 
     # Reconstruct mcols in desired order
     mcols(repair_template) <- mcols(repair_template)[, c(existing_priority, remaining_cols)]
+    if ("max_alphagenome_score" %in% names(mcols(repair_template))) {
+      repair_template$max_alphagenome_score <- round(repair_template$max_alphagenome_score, 3)
+    }
     write_component_files(output_dir, design_name, as.data.frame(repair_template), "templates")
   }
   rownames(all_probes) <- all_probes$names
@@ -410,7 +414,7 @@ export_design_results <- function(
       quote = FALSE, sep = ",", row.names = FALSE, col.names = TRUE)
   }
 
-  # We move the complex annotations to separte tables
+  # We move the complex annotations to separate tables
   if (length(var_data) > 0) {
     # deduplicate
     var_names <- sapply(strsplit(names(var_data), " "), `[[`, 1)
@@ -418,10 +422,21 @@ export_design_results <- function(
     names(var_data) <- var_names[!duplicated(var_names)]
     var_data$guide_name <- NULL
     var_data$position_in_guide <- NULL
-    var_data$ag_max_score <- NULL
+    var_data$ag_impact_score <- NULL
     var_data$cadd_imputed <- NULL
     var_data$disruption_tier <- NULL
     var_data$priority_group <- NULL
+    var_data$is_ag_risky <- NULL
+    var_data$alphagenome_composite_score <- NULL
+    var_data$alphagenome_sites_max <- NULL
+    var_data$alphagenome_usage_max <- NULL
+    var_data$alphagenome_junctions_max <- NULL
+    var_data$alphagenome_SPLICE_SITES <- NULL
+    var_data$alphagenome_SPLICE_SITE_USAGE <- NULL
+    var_data$alphagenome_SPLICE_JUNCTIONS <- NULL
+    if ("ag_composite_score" %in% names(mcols(var_data))) {
+      var_data$ag_composite_score <- round(var_data$ag_composite_score, 3)
+    }
     var_data_cds <- as.data.frame(var_data$CDS)
     if (nrow(var_data_cds) > 0) var_data_cds$group_name <- names(var_data)[var_data_cds$group]
     var_data_dbSNP <- as.data.frame(var_data$dbSNP)

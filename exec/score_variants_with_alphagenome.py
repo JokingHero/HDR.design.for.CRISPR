@@ -64,7 +64,7 @@ def score_variants(api_key, input_csv_path, species, output):
     selected_scorers = [
         all_scorers[key] for key in all_scorers
         if key.lower() in [
-            'splice_sites', 'splice_site_usage'#, 'splice_junctions',
+            'splice_sites', 'splice_site_usage', 'splice_junctions',
             # 'atac', 'dnase'
         ]
     ]
