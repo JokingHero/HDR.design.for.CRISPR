@@ -110,13 +110,16 @@ augment_var_data_with_scores <- function(var_data,
   # This single number captures magnitude, motif disruption, and isoform switching.
 
   ag_score <- rep(0, length(var_data))
+  ag_has_data <- rep(FALSE, length(var_data))
 
   if ("alphagenome_composite_score" %in% names(mcols(var_data))) {
     raw <- var_data$alphagenome_composite_score
-    ag_score[!is.na(raw)] <- raw[!is.na(raw)]
+    ag_has_data <- !is.na(raw)
+    ag_score[ag_has_data] <- raw[ag_has_data]
   } else if ("ag_composite_score" %in% names(mcols(var_data))) {
     raw <- var_data$ag_composite_score
-    ag_score[!is.na(raw)] <- raw[!is.na(raw)]
+    ag_has_data <- !is.na(raw)
+    ag_score[ag_has_data] <- raw[ag_has_data]
   } else {
     # Fallback for legacy data or if composite calculation failed:
     # Try to sum individually if columns exist
@@ -124,21 +127,23 @@ augment_var_data_with_scores <- function(var_data,
       var_data$alphagenome_sites_max
     } else if ("alphagenome_SPLICE_SITES" %in% names(mcols(var_data))) {
       var_data$alphagenome_SPLICE_SITES
-    } else 0
+    } else rep(NA_real_, length(var_data))
 
     val_usage <- if ("alphagenome_usage_max" %in% names(mcols(var_data))) {
       var_data$alphagenome_usage_max
     } else if ("alphagenome_SPLICE_SITE_USAGE" %in% names(mcols(var_data))) {
       var_data$alphagenome_SPLICE_SITE_USAGE
-    } else 0
+    } else rep(NA_real_, length(var_data))
 
     val_junctions <- if ("alphagenome_junctions_max" %in% names(mcols(var_data))) {
       var_data$alphagenome_junctions_max
     } else if ("alphagenome_SPLICE_JUNCTIONS" %in% names(mcols(var_data))) {
       var_data$alphagenome_SPLICE_JUNCTIONS
-    } else 0
+    } else rep(NA_real_, length(var_data))
 
-    # Note: treating NA as 0 for fallback
+    ag_has_data <- !(is.na(val_sites) & is.na(val_usage) & is.na(val_junctions))
+
+    # Note: treating missing components as 0 only when at least one AG component exists.
     val_sites[is.na(val_sites)] <- 0
     val_usage[is.na(val_usage)] <- 0
     val_junctions[is.na(val_junctions)] <- 0
@@ -146,6 +151,7 @@ augment_var_data_with_scores <- function(var_data,
   }
   var_data$ag_composite_score <- ag_score
   var_data$ag_impact_score <- ag_score
+  var_data$ag_has_data <- ag_has_data
 
   # ============================================================================
   # 6. FINAL SAFETY TIER (The "Meta" Feature)
@@ -321,7 +327,7 @@ create_template_and_probes <- function(selected_muts,
   muts_to_inject <- variants_in_editw
   snvs_introduced <- ""
   total_cadd <- 0
-  max_ag_score <- 0
+  max_ag_score <- NA_real_
   total_snp_quality <- 0
   any_overlaps_nc <- FALSE
 
@@ -339,13 +345,24 @@ create_template_and_probes <- function(selected_muts,
     total_snp_quality <- sum(selected_muts$dbSNP_priority, na.rm = TRUE)
     any_overlaps_nc <- any(selected_muts$has_nc_overlap)
     if ("ag_composite_score" %in% names(mcols(selected_muts))) {
-      max_ag_score <- max(
-        selected_muts$ag_composite_score, na.rm = TRUE)
-      if (!is.finite(max_ag_score)) max_ag_score <- 0
+      has_ag_data <- if ("ag_has_data" %in% names(mcols(selected_muts))) {
+        !is.na(selected_muts$ag_has_data) & selected_muts$ag_has_data
+      } else {
+        !is.na(selected_muts$ag_composite_score)
+      }
+
+      if (any(has_ag_data)) {
+        max_ag_score <- max(
+          selected_muts$ag_composite_score[has_ag_data], na.rm = TRUE)
+        if (!is.finite(max_ag_score)) max_ag_score <- NA_real_
+      }
     } else if ("alphagenome_composite_score" %in% names(mcols(selected_muts))) {
-      max_ag_score <- max(
-        selected_muts$alphagenome_composite_score, na.rm = TRUE)
-      if (!is.finite(max_ag_score)) max_ag_score <- 0
+      has_ag_data <- !is.na(selected_muts$alphagenome_composite_score)
+      if (any(has_ag_data)) {
+        max_ag_score <- max(
+          selected_muts$alphagenome_composite_score[has_ag_data], na.rm = TRUE)
+        if (!is.finite(max_ag_score)) max_ag_score <- NA_real_
+      }
     }
   }
 

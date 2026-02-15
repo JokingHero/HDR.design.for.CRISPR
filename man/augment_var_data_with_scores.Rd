@@ -8,7 +8,7 @@ augment_var_data_with_scores(
   var_data,
   optimization_scheme = "balanced",
   benign_cadd_threshold = 15,
-  ag_threshold = 0.9
+  ag_threshold = 1.5
 )
 }
 \arguments{
@@ -19,8 +19,9 @@ augment_var_data_with_scores(
 \item{benign_cadd_threshold}{Numeric. CADD score below which a variant is
 considered high-confidence benign. Default 15.}
 
-\item{ag_threshold}{Numeric. AlphaGenome magnitude above which a variant
-is considered risky. Default 0.2.}
+\item{ag_threshold}{Numeric. AlphaGenome Composite Score above which a variant
+is considered risky. Default 1.5 and implies strong signal in at least one
+modality and moderate support in others. Research suggests >1.0 is moderate risk.}
 }
 \value{
 The augmented var_data GRanges object with standardized columns:

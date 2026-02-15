@@ -301,7 +301,7 @@ export_design_results <- function(
     if (is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
     # Assumption: total_snp_quality_score is the sum/max of safety tiers (Lower is Better)
     if (is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999
-    if (is.null(repair_template$max_alphagenome_score)) repair_template$max_alphagenome_score <- 0
+    if (is.null(repair_template$max_alphagenome_score)) repair_template$max_alphagenome_score <- NA_real_
     repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
 
     # --- BINNING (The "Minimum Viable Edit" Strategy) ---
@@ -423,6 +423,7 @@ export_design_results <- function(
     var_data$guide_name <- NULL
     var_data$position_in_guide <- NULL
     var_data$ag_impact_score <- NULL
+    var_data$ag_has_data <- NULL
     var_data$cadd_imputed <- NULL
     var_data$disruption_tier <- NULL
     var_data$priority_group <- NULL
