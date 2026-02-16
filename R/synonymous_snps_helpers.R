@@ -527,7 +527,9 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     stop("Python script seems to have completed, but the output file is missing or empty.\n",
              "Output:\n", paste(result, collapse = "\n"))
   }
-  quantile_score <- variant_id <- output_type <- NULL
+  quantile_score <- variant_id <- output_type <- max_score <-
+    alphagenome_sites_max <- alphagenome_usage_max <-
+    alphagenome_junctions_max <- alphagenome_composite_score <- NULL
   ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
   required_input_cols <- c("variant_id", "output_type", "quantile_score")
   if (!all(required_input_cols %in% names(ag_dt))) {

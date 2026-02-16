@@ -329,6 +329,7 @@ create_template_and_probes <- function(selected_muts,
   total_cadd <- 0
   max_ag_score <- NA_real_
   total_snp_quality <- 0
+  unsafe_snv_count <- 0L
   any_overlaps_nc <- FALSE
 
   if (length(selected_muts) > 0) {
@@ -343,6 +344,9 @@ create_template_and_probes <- function(selected_muts,
     snvs_introduced <- paste0(names(selected_muts), collapse = ";")
     total_cadd <- sum(selected_muts$cadd_imputed, na.rm = TRUE)
     total_snp_quality <- sum(selected_muts$dbSNP_priority, na.rm = TRUE)
+    if ("safety_tier" %in% names(mcols(selected_muts))) {
+      unsafe_snv_count <- sum(selected_muts$safety_tier >= 4, na.rm = TRUE)
+    }
     any_overlaps_nc <- any(selected_muts$has_nc_overlap)
     if ("ag_composite_score" %in% names(mcols(selected_muts))) {
       has_ag_data <- if ("ag_has_data" %in% names(mcols(selected_muts))) {
@@ -402,6 +406,7 @@ create_template_and_probes <- function(selected_muts,
   template_gr$max_alphagenome_score <- max_ag_score
   template_gr$any_overlaps_noncoding <- any_overlaps_nc
   template_gr$total_snp_quality_score <- total_snp_quality
+  template_gr$unsafe_snv_count <- unsafe_snv_count
 
   # --- 5. Design Probes if requested ---
   probes_out <- GRanges()

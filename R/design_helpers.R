@@ -304,20 +304,31 @@ export_design_results <- function(
     if (is.null(repair_template$max_alphagenome_score)) repair_template$max_alphagenome_score <- NA_real_
     repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
 
-    # --- BINNING (The "Minimum Viable Edit" Strategy) ---
+    # --- BINNING ---
+    # New schema: 0 (best) to 5 (worst)
+    # Base bin depends on PAM + total disruption.
+    pam_disrupted <- repair_template$pam_disrupted_count >= 1
+    total_disruption <- repair_template$total_disruption_count
 
-    # 1. Calculate Disruption Confidence Bin (Lower is Better)
-    # This replaces the abstract "Pareto Rank" with concrete biological tiers.
-    # Bin 1 (Platinum): Guaranteed (PAM disruption >= 1)
-    # Bin 2 (Gold):     High Probability (No PAM, but Seed >= 2)
-    # Bin 3 (Silver):   Probable (No PAM, Seed == 1)
-    # Bin 4 (Bronze):   Low/Fail (Distal only)
+    base_disruption_bin <- rep(5L, length(repair_template))
+    has_useful_disruption <- total_disruption > 0
 
-    disruption_bin <- rep(4, length(repair_template))
-    disruption_bin[repair_template$seed_disrupted_count >= 1] <- 3
-    disruption_bin[repair_template$seed_disrupted_count >= 2] <- 2
-    disruption_bin[repair_template$pam_disrupted_count >= 1] <- 1
-    repair_template$disruption_bin <- disruption_bin
+    base_disruption_bin[has_useful_disruption & pam_disrupted & total_disruption >= 2] <- 0L
+    base_disruption_bin[has_useful_disruption & pam_disrupted & total_disruption == 1] <- 1L
+    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption >= 3] <- 2L
+    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption == 2] <- 3L
+    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption == 1] <- 4L
+
+    unsafe_penalty <- if (optimization_scheme == "disruption_first") {
+      rep(0L, length(repair_template))
+    } else if ("unsafe_snv_count" %in% names(mcols(repair_template))) {
+      penalty <- repair_template$unsafe_snv_count
+      penalty[is.na(penalty)] <- 0L
+      as.integer(penalty)
+    } else {
+      rep(0L, length(repair_template))
+    }
+    repair_template$disruption_bin <- pmin(5L, base_disruption_bin + unsafe_penalty)
 
     # --- HIERARCHICAL SORTING ---
     ordering <- switch(
@@ -386,6 +397,8 @@ export_design_results <- function(
 
     # Reconstruct mcols in desired order
     mcols(repair_template) <- mcols(repair_template)[, c(existing_priority, remaining_cols)]
+    # Internal helper, not part of exported templates schema
+    repair_template$unsafe_snv_count <- NULL
     if ("max_alphagenome_score" %in% names(mcols(repair_template))) {
       repair_template$max_alphagenome_score <- round(repair_template$max_alphagenome_score, 3)
     }

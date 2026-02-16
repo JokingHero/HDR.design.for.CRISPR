@@ -120,7 +120,7 @@ Composite score:
 Processing behavior:
 - use absolute effect magnitude
 - optional context filtering by `alphagenome_context` before max aggregation
-- missing values default to `0`
+- missing values default to NA
 
 ### 6.5 Safety tier (`safety_tier`, lower is better)
 
@@ -234,10 +234,20 @@ Seed/PAM mismatch windows are strand-aware:
 
 ### 10.1 `disruption_bin` (lower is better)
 
-- bin 1: `pam_disrupted_count >= 1`
-- bin 2: `seed_disrupted_count >= 2` and no PAM bin-1 condition
-- bin 3: `seed_disrupted_count >= 1` and no stronger condition
-- bin 4: otherwise
+Base bins use PAM status and total disruption count:
+
+- bin 0 (Platinum): `pam_disrupted_count >= 1` AND `total_disruption_count >= 2`
+- bin 1 (Gold): `pam_disrupted_count >= 1` AND `total_disruption_count == 1`
+- bin 2 (Silver): `pam_disrupted_count == 0` AND `total_disruption_count >= 3`
+- bin 3 (Bronze): `pam_disrupted_count == 0` AND `total_disruption_count == 2`
+- bin 4 (Iron): `pam_disrupted_count == 0` AND `total_disruption_count == 1`
+- bin 5 (Dirt): `total_disruption_count == 0`
+
+Safety penalty is then applied directly to disruption rank
+(except in `disruption_first`, where penalty is not applied):
+
+- `unsafe_snv_count = number of selected SNVs with safety_tier >= 4`
+- final `disruption_bin = min(5, base_disruption_bin + unsafe_snv_count)`
 
 `n_snvs` is derived from `snvs_introduced` token count.
 If `snvs_introduced` is empty, `n_snvs = 0`.
