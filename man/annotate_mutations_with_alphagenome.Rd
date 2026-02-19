@@ -16,15 +16,16 @@ annotate_mutations_with_alphagenome(
 \item{all_variants}{A \code{GRanges} object. Must contain metadata columns
 named \code{REF} and \code{ALT} for the reference and alternate alleles.}
 
-\item{alphagenome_key}{A character string containing your private AlphaGenome API key.}
+\item{alphagenome_key}{Your key to the alphagenome service.}
 
 \item{species}{A character string, either "human", "mouse".}
 
-\item{python_exec}{The command to execute Python (e.g., "python", "python3").
-Default is "python".}
+\item{python_exec}{path to the python3 that has alphagenome installed.}
+
+\item{alphagenome_context}{Celltypes for which to filter alphagenome scores.}
 }
 \value{
-\code{all_variants} with alphagenome mcols
+alphagenome table of results, sorted as original \code{all_variants}
 }
 \description{
 This function takes a GRanges object containing genetic variants, calls a

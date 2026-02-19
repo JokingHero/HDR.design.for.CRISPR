@@ -474,11 +474,9 @@ annotate_variants_with_cadd <- function(all_variants, cadd) {
 #' the new scores as DataFrameList.
 #' @param all_variants A \code{GRanges} object. Must contain metadata columns
 #'   named \code{REF} and \code{ALT} for the reference and alternate alleles.
-#' @param alphagenome_key A character string containing your private AlphaGenome API key.
 #' @param species A character string, either "human", "mouse".
-#' @param python_exec The command to execute Python (e.g., "python", "python3").
-#'   Default is "python".
-#' @return `all_variants` with alphagenome mcols
+#' @inheritParams design_hdr
+#' @return alphagenome table of results, sorted as original `all_variants`
 #' @importFrom rlang .data
 #' @keywords internal
 #'
@@ -528,8 +526,8 @@ annotate_mutations_with_alphagenome <- function(all_variants,
              "Output:\n", paste(result, collapse = "\n"))
   }
   quantile_score <- variant_id <- output_type <- max_score <-
-    alphagenome_sites_max <- alphagenome_usage_max <-
-    alphagenome_junctions_max <- alphagenome_composite_score <- NULL
+    alphagenome_SPLICE_SITES <- alphagenome_SPLICE_SITE_USAGE <-
+    alphagenome_SPLICE_JUNCTIONS <- is_ag_safe <- NULL
   ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
   required_input_cols <- c("variant_id", "output_type", "quantile_score")
   if (!all(required_input_cols %in% names(ag_dt))) {
@@ -562,7 +560,6 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     .groups = "drop"
   ))
   ag_dt$max_score[!is.finite(ag_dt$max_score)] <- 0
-
   ag_wide <- tidyr::pivot_wider(
     ag_dt,
     id_cols = variant_id,
@@ -574,24 +571,15 @@ annotate_mutations_with_alphagenome <- function(all_variants,
   for (col in required_cols) {
     if (!col %in% names(ag_wide)) ag_wide[[col]] <- 0
   }
-
-  # Formula: Sites + Usage + (Junctions / 5)
-  # Junctions are normalized by 5 because raw junction counts have a larger dynamic range.
-  ag_wide$alphagenome_composite_score <- (
-    ag_wide$SPLICE_SITES +
-      ag_wide$SPLICE_SITE_USAGE +
-      (ag_wide$SPLICE_JUNCTIONS / 5.0)
-  )
-  ag_wide$alphagenome_sites_max <- ag_wide$SPLICE_SITES
-  ag_wide$alphagenome_usage_max <- ag_wide$SPLICE_SITE_USAGE
-  ag_wide$alphagenome_junctions_max <- ag_wide$SPLICE_JUNCTIONS
+  ag_wide$alphagenome_SPLICE_SITES <- ag_wide$SPLICE_SITES
+  ag_wide$alphagenome_SPLICE_SITE_USAGE <- ag_wide$SPLICE_SITE_USAGE
+  ag_wide$alphagenome_SPLICE_JUNCTIONS <- ag_wide$SPLICE_JUNCTIONS
   ag_wide <- dplyr::select(
     ag_wide,
     variant_id,
-    alphagenome_sites_max,
-    alphagenome_usage_max,
-    alphagenome_junctions_max,
-    alphagenome_composite_score
+    alphagenome_SPLICE_SITES,
+    alphagenome_SPLICE_SITE_USAGE,
+    alphagenome_SPLICE_JUNCTIONS
   )
 
   original_ids_order <- paste0(
@@ -611,6 +599,7 @@ annotate_mutations_with_alphagenome <- function(all_variants,
 
 #' Prepare Candidate Synonymous Mutations
 #' @description Generates, filters, and annotates all possible synonymous SNPs.
+#' @inheritParams design_hdr
 #' @keywords internal
 prepare_candidate_snps <- function(
     candidate_snp_map,
@@ -711,7 +700,8 @@ prepare_candidate_snps <- function(
     } else NA
     if (!is.na(species)) {
       ag_dt <- annotate_mutations_with_alphagenome(
-        all_variants, alphagenome_key, species, python_exec, alphagenome_context)
+        all_variants, alphagenome_key, species, python_exec,
+        alphagenome_context)
       mcols(all_variants) <- cbind(mcols(all_variants), ag_dt)
     }
   }

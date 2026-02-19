@@ -28,11 +28,14 @@ design_hdr(
   snps = NULL,
   clinvar = NULL,
   cadd = NULL,
+  benign_cadd_threshold = 15,
   score_efficiency = FALSE,
   do_probes = TRUE,
   primer3 = "",
   alphagenome_key = "",
   alphagenome_context = "",
+  alphagenome_threshold = 0.99,
+  splicing_count = 1,
   python_exec = "python3"
 )
 }
@@ -88,6 +91,9 @@ design_hdr(
 
 \item{cadd}{Optional. A function to retrieve CADD scores, e.g., \code{getGScores("cadd.v1.6.hg38")}.}
 
+\item{benign_cadd_threshold}{Numeric. CADD score below which a variant is
+considered high-confidence benign. Default 15.}
+
 \item{score_efficiency}{Logical. If \code{TRUE}, score guides using models from the \code{crisprScore} package.}
 
 \item{do_probes}{Logical. If \code{TRUE}, design qPCR probes for HDR, NHEJ, and Reference.}
@@ -97,6 +103,13 @@ design_hdr(
 \item{alphagenome_key}{Your key to the alphagenome service.}
 
 \item{alphagenome_context}{Celltypes for which to filter alphagenome scores.}
+
+\item{alphagenome_threshold}{This is the threshold used to decide if a given splicing
+prediction is not considered safe when above it}
+
+\item{splicing_count}{This is the number of splicing predictors that have to be above the
+\code{alphagenome_threshold} to consider a SNV as unsafe. Because we are using max
+across all tissues and cell types we want to be sure an SNV is dangerous.}
 
 \item{python_exec}{path to the python3 that has alphagenome installed.}
 }

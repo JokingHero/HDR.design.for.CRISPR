@@ -32,11 +32,18 @@
 #' @param snps Optional. An object like \code{SNPlocs.Hsapiens.dbSNP155.GRCh38}.
 #' @param clinvar Optional. File path to a ClinVar VCF file.
 #' @param cadd Optional. A function to retrieve CADD scores, e.g., `getGScores("cadd.v1.6.hg38")`.
+#' @param benign_cadd_threshold Numeric. CADD score below which a variant is
+#'   considered high-confidence benign. Default 15.
 #' @param score_efficiency Logical. If `TRUE`, score guides using models from the `crisprScore` package.
 #' @param do_probes Logical. If `TRUE`, design qPCR probes for HDR, NHEJ, and Reference.
 #' @param primer3 Optional. Full path to the `primer3_core` executable to design PCR primers.
 #' @param alphagenome_key Your key to the alphagenome service.
 #' @param alphagenome_context Celltypes for which to filter alphagenome scores.
+#' @param alphagenome_threshold This is the threshold used to decide if a given splicing
+#' prediction is not considered safe when above it
+#' @param splicing_count This is the number of splicing predictors that have to be above the
+#' `alphagenome_threshold` to consider a SNV as unsafe. Because we are using max
+#' across all tissues and cell types we want to be sure an SNV is dangerous.
 #' @param python_exec path to the python3 that has alphagenome installed.
 #' @return This function does not return a value. It writes all output files to the specified `output_dir`.
 #' @import Biostrings GenomicFeatures GenomicRanges SummarizedExperiment IRanges BSgenome BSgenome.Hsapiens.UCSC.hg38 VariantAnnotation GenomeInfoDb
@@ -67,11 +74,14 @@ design_hdr <- function(
   snps = NULL,
   clinvar = NULL,
   cadd = NULL,
+  benign_cadd_threshold = 15,
   score_efficiency = FALSE,
   do_probes = TRUE,
   primer3 = "",
   alphagenome_key = "",
   alphagenome_context = "",
+  alphagenome_threshold = 0.99,
+  splicing_count = 1,
   python_exec = "python3"
 ) {
   set.seed(seed) # Ensure reproducible randomness
@@ -245,15 +255,16 @@ design_hdr <- function(
     annotation, txdb, genome,
     variants_genomic_on_ts,
     intron_bp, exon_bp, clinvar, snps, cadd,
-    alphagenome_key, python_exec, alphagenome_context
-  )
+    alphagenome_key, python_exec, alphagenome_context)
 
   # TODO: we could still have valid self deactivated guides here!!!
   # same as above
   if (length(var_data) == 0) {
     stop("No valid candidate SNPs could be generated for the active guides.")
   }
-  var_data <- augment_var_data_with_scores(var_data, optimization_scheme)
+  var_data <- augment_var_data_with_scores(
+    var_data, optimization_scheme, benign_cadd_threshold,
+    alphagenome_threshold, splicing_count)
 
   # --- Generate Templates based on Optimization Scheme ---
   message(paste("Generating templates with scheme:", optimization_scheme))

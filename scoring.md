@@ -212,7 +212,7 @@ For each produced template:
 - `snvs_introduced`: semicolon list of selected SNV ids
 - `total_cadd`: sum of selected `cadd_imputed`
 - `total_snp_quality_score`: sum of selected `dbSNP_priority`
-- `max_alphagenome_score`: max selected AG composite
+- `is_ag_risky`: if any SNV is risky for splicing as predicted by alphagenome
 - `any_overlaps_noncoding`: any selected SNV overlaps noncoding annotations
 - disruption metrics from guide-vs-template alignment:
   - `pam_disrupted_count`
@@ -259,7 +259,7 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
   2. `disruption_bin`
   3. `total_snp_quality_score`
   4. `n_snvs`
-  5. `max_alphagenome_score`
+  5. `is_ag_risky`
 
 - `disruption_first`:
   1. `disruption_bin`

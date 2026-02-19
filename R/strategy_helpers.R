@@ -50,12 +50,7 @@ select_non_overlapping_mutations <- function(gr, N) {
 #'   facilitate downstream sorting. Handles missing data (e.g., non-model organisms)
 #'   by imputing neutral defaults.
 #' @param var_data The main GRanges object of candidate SNPs.
-#' @param optimization_scheme Typically "balanced"
-#' @param benign_cadd_threshold Numeric. CADD score below which a variant is
-#'   considered high-confidence benign. Default 15.
-#' @param ag_threshold Numeric. AlphaGenome Composite Score above which a variant
-#'   is considered risky. Default 1.5 and implies strong signal in at least one
-#'   modality and moderate support in others. Research suggests >1.0 is moderate risk.
+#' @inheritParams design_hdr
 #' @return The augmented var_data GRanges object with standardized columns:
 #'   `penalty_score`, `disruption_tier`, `safety_tier`, etc.
 #' @keywords internal
@@ -63,12 +58,9 @@ select_non_overlapping_mutations <- function(gr, N) {
 augment_var_data_with_scores <- function(var_data,
                                          optimization_scheme = "balanced",
                                          benign_cadd_threshold = 15,
-                                         ag_threshold = 1.5) {
+                                         alphagenome_threshold = 0.99,
+                                         splicing_count = 2) {
   if (length(var_data) == 0) return(var_data)
-
-  # ============================================================================
-  # 1. GUIDE POSITION (Guaranteed Feature)
-  # ============================================================================
   var_data$disruption_tier <- 5
   var_data$disruption_tier[var_data$position_in_guide >= 10] <- 4
   var_data$disruption_tier[var_data$position_in_guide >= 13] <- 3
@@ -76,7 +68,7 @@ augment_var_data_with_scores <- function(var_data,
   var_data$disruption_tier[var_data$position_in_guide >= 22] <- 1
 
   # ============================================================================
-  # 2. DBSNP / KNOWN VARIATION (Optional Feature)
+  # DBSNP / KNOWN VARIATION (Optional Feature)
   # ============================================================================
   var_data$dbSNP_priority <- 3
 
@@ -89,7 +81,7 @@ augment_var_data_with_scores <- function(var_data,
   }
 
   # ============================================================================
-  # 3. NON-CODING OVERLAPS (Guaranteed Annotation Feature)
+  # NON-CODING OVERLAPS (Guaranteed Annotation Feature)
   # ============================================================================
   var_data$has_nc_overlap <- FALSE
   if (!is.null(var_data$noncoding)) {
@@ -97,64 +89,25 @@ augment_var_data_with_scores <- function(var_data,
   }
 
   # ============================================================================
-  # 4. CADD SCORES (Optional Feature)
+  # CADD SCORES (Optional Feature)
   # ============================================================================
   if (is.null(var_data$CADD)) var_data$CADD <- NA
   var_data$cadd_imputed <- var_data$CADD
   var_data$cadd_imputed[is.na(var_data$cadd_imputed)] <- 15
 
-  # ============================================================================
-  # 5. ALPHAGENOME (Splicing Composite Score)
-  # ============================================================================
-  # Research Update: We now use the Composite Score (Sites + Usage + Junctions/5).
-  # This single number captures magnitude, motif disruption, and isoform switching.
-
-  ag_score <- rep(0, length(var_data))
-  ag_has_data <- rep(FALSE, length(var_data))
-
-  if ("alphagenome_composite_score" %in% names(mcols(var_data))) {
-    raw <- var_data$alphagenome_composite_score
-    ag_has_data <- !is.na(raw)
-    ag_score[ag_has_data] <- raw[ag_has_data]
-  } else if ("ag_composite_score" %in% names(mcols(var_data))) {
-    raw <- var_data$ag_composite_score
-    ag_has_data <- !is.na(raw)
-    ag_score[ag_has_data] <- raw[ag_has_data]
+  var_data$is_ag_risky <- if (!all(c("alphagenome_SPLICE_SITES",
+             "alphagenome_SPLICE_SITE_USAGE",
+             "alphagenome_SPLICE_JUNCTIONS") %in% names(var_data))) {
+    FALSE
   } else {
-    # Fallback for legacy data or if composite calculation failed:
-    # Try to sum individually if columns exist
-    val_sites <- if ("alphagenome_sites_max" %in% names(mcols(var_data))) {
-      var_data$alphagenome_sites_max
-    } else if ("alphagenome_SPLICE_SITES" %in% names(mcols(var_data))) {
-      var_data$alphagenome_SPLICE_SITES
-    } else rep(NA_real_, length(var_data))
-
-    val_usage <- if ("alphagenome_usage_max" %in% names(mcols(var_data))) {
-      var_data$alphagenome_usage_max
-    } else if ("alphagenome_SPLICE_SITE_USAGE" %in% names(mcols(var_data))) {
-      var_data$alphagenome_SPLICE_SITE_USAGE
-    } else rep(NA_real_, length(var_data))
-
-    val_junctions <- if ("alphagenome_junctions_max" %in% names(mcols(var_data))) {
-      var_data$alphagenome_junctions_max
-    } else if ("alphagenome_SPLICE_JUNCTIONS" %in% names(mcols(var_data))) {
-      var_data$alphagenome_SPLICE_JUNCTIONS
-    } else rep(NA_real_, length(var_data))
-
-    ag_has_data <- !(is.na(val_sites) & is.na(val_usage) & is.na(val_junctions))
-
-    # Note: treating missing components as 0 only when at least one AG component exists.
-    val_sites[is.na(val_sites)] <- 0
-    val_usage[is.na(val_usage)] <- 0
-    val_junctions[is.na(val_junctions)] <- 0
-    ag_score <- val_sites + val_usage + (val_junctions / 5)
+      ((var_data$alphagenome_SPLICE_SITES > alphagenome_threshold) +
+         (var_data$alphagenome_SPLICE_SITE_USAGE > alphagenome_threshold) +
+         (var_data$alphagenome_SPLICE_JUNCTIONS > alphagenome_threshold)) >=
+      splicing_count
   }
-  var_data$ag_composite_score <- ag_score
-  var_data$ag_impact_score <- ag_score
-  var_data$ag_has_data <- ag_has_data
 
   # ============================================================================
-  # 6. FINAL SAFETY TIER (The "Meta" Feature)
+  # FINAL SAFETY TIER (The "Meta" Feature)
   # ============================================================================
   # 1 = Proven Benign (dbSNP Match)
   # 2 = High Confidence Benign (Low CADD + Low AG + No NC Overlap)
@@ -164,8 +117,7 @@ augment_var_data_with_scores <- function(var_data,
   tier <- rep(3, length(var_data))
 
   # Risk Factors
-  is_ag_risky <- ag_score > ag_threshold
-  is_risky_pred <- (var_data$cadd_imputed > benign_cadd_threshold) | is_ag_risky
+  is_risky_pred <- (var_data$cadd_imputed > benign_cadd_threshold) | var_data$is_ag_risky
   tier[is_risky_pred] <- 4
   tier[var_data$has_nc_overlap] <- 5
 
@@ -181,7 +133,7 @@ augment_var_data_with_scores <- function(var_data,
   var_data$safety_tier <- tier
 
   # ============================================================================
-  # 7. CALCULATE PRIORITY GROUP (Switch Case)
+  # CALCULATE PRIORITY GROUP (Switch Case)
   # ============================================================================
 
   prio <- rep(99, length(var_data))
@@ -238,6 +190,11 @@ augment_var_data_with_scores <- function(var_data,
 #'
 find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
   if (length(guide_snps) == 0) return(GRanges())
+  ag_risk <- if ("is_ag_risky" %in% names(mcols(guide_snps))) {
+    guide_snps$is_ag_risky
+  } else {
+    rep(FALSE, length(guide_snps))
+  }
 
   ordering <- switch(
     optimization_scheme,
@@ -245,19 +202,19 @@ find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
       guide_snps$priority_group,
       guide_snps$disruption_tier,
       guide_snps$cadd_imputed,
-      guide_snps$ag_impact_score,
+      ag_risk,
       -guide_snps$position_in_guide
     ),
     "disruption_first" = order(
       guide_snps$priority_group,
       guide_snps$safety_tier,
       guide_snps$cadd_imputed,
-      guide_snps$ag_impact_score
+      ag_risk
     ),
     "safety_first" = order(
       guide_snps$priority_group,
       guide_snps$disruption_tier,
-      guide_snps$ag_impact_score,
+      ag_risk,
       -guide_snps$position_in_guide
     ),
     stop("Invalid optimization_scheme")
@@ -327,7 +284,7 @@ create_template_and_probes <- function(selected_muts,
   muts_to_inject <- variants_in_editw
   snvs_introduced <- ""
   total_cadd <- 0
-  max_ag_score <- NA_real_
+  is_ag_risky <- FALSE
   total_snp_quality <- 0
   unsafe_snv_count <- 0L
   any_overlaps_nc <- FALSE
@@ -348,25 +305,8 @@ create_template_and_probes <- function(selected_muts,
       unsafe_snv_count <- sum(selected_muts$safety_tier >= 4, na.rm = TRUE)
     }
     any_overlaps_nc <- any(selected_muts$has_nc_overlap)
-    if ("ag_composite_score" %in% names(mcols(selected_muts))) {
-      has_ag_data <- if ("ag_has_data" %in% names(mcols(selected_muts))) {
-        !is.na(selected_muts$ag_has_data) & selected_muts$ag_has_data
-      } else {
-        !is.na(selected_muts$ag_composite_score)
-      }
-
-      if (any(has_ag_data)) {
-        max_ag_score <- max(
-          selected_muts$ag_composite_score[has_ag_data], na.rm = TRUE)
-        if (!is.finite(max_ag_score)) max_ag_score <- NA_real_
-      }
-    } else if ("alphagenome_composite_score" %in% names(mcols(selected_muts))) {
-      has_ag_data <- !is.na(selected_muts$alphagenome_composite_score)
-      if (any(has_ag_data)) {
-        max_ag_score <- max(
-          selected_muts$alphagenome_composite_score[has_ag_data], na.rm = TRUE)
-        if (!is.finite(max_ag_score)) max_ag_score <- NA_real_
-      }
+    if ("is_ag_risky" %in% names(mcols(selected_muts))) {
+      is_ag_risky <- any(selected_muts$is_ag_risky)
     }
   }
 
@@ -403,7 +343,7 @@ create_template_and_probes <- function(selected_muts,
   template_gr$aln_guide <- guide_stats$aln_guide
   template_gr$aln_template <- guide_stats$aln_template
   template_gr$total_cadd <- total_cadd
-  template_gr$max_alphagenome_score <- max_ag_score
+  template_gr$is_ag_risky <- is_ag_risky
   template_gr$any_overlaps_noncoding <- any_overlaps_nc
   template_gr$total_snp_quality_score <- total_snp_quality
   template_gr$unsafe_snv_count <- unsafe_snv_count

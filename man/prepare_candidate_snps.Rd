@@ -20,6 +20,27 @@ prepare_candidate_snps(
   alphagenome_context
 )
 }
+\arguments{
+\item{annotation}{File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with \code{AnnotationDbi::loadDb}.}
+
+\item{genome}{A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.}
+
+\item{intron_bp}{Number of intronic bases near splice sites to exclude from synonymous SNPs (default: 6).}
+
+\item{exon_bp}{Number of exonic bases near splice sites to exclude from synonymous SNPs (default: 3).}
+
+\item{clinvar}{Optional. File path to a ClinVar VCF file.}
+
+\item{snps}{Optional. An object like \code{SNPlocs.Hsapiens.dbSNP155.GRCh38}.}
+
+\item{cadd}{Optional. A function to retrieve CADD scores, e.g., \code{getGScores("cadd.v1.6.hg38")}.}
+
+\item{alphagenome_key}{Your key to the alphagenome service.}
+
+\item{python_exec}{path to the python3 that has alphagenome installed.}
+
+\item{alphagenome_context}{Celltypes for which to filter alphagenome scores.}
+}
 \description{
 Generates, filters, and annotates all possible synonymous SNPs.
 }

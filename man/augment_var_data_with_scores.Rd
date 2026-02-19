@@ -8,20 +8,29 @@ augment_var_data_with_scores(
   var_data,
   optimization_scheme = "balanced",
   benign_cadd_threshold = 15,
-  ag_threshold = 1.5
+  alphagenome_threshold = 0.99,
+  splicing_count = 2
 )
 }
 \arguments{
 \item{var_data}{The main GRanges object of candidate SNPs.}
 
-\item{optimization_scheme}{Typically "balanced"}
+\item{optimization_scheme}{The optimization scheme for selecting synonymous SNPs. Must be one of:
+\itemize{
+\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNP quality.
+\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNPs.
+\item \code{"disruption_first"}: Prioritizes PAM disruption and guide disruption.
+}}
 
 \item{benign_cadd_threshold}{Numeric. CADD score below which a variant is
 considered high-confidence benign. Default 15.}
 
-\item{ag_threshold}{Numeric. AlphaGenome Composite Score above which a variant
-is considered risky. Default 1.5 and implies strong signal in at least one
-modality and moderate support in others. Research suggests >1.0 is moderate risk.}
+\item{alphagenome_threshold}{This is the threshold used to decide if a given splicing
+prediction is not considered safe when above it}
+
+\item{splicing_count}{This is the number of splicing predictors that have to be above the
+\code{alphagenome_threshold} to consider a SNV as unsafe. Because we are using max
+across all tissues and cell types we want to be sure an SNV is dangerous.}
 }
 \value{
 The augmented var_data GRanges object with standardized columns:
