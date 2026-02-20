@@ -97,7 +97,7 @@ augment_var_data_with_scores <- function(var_data,
 
   var_data$is_ag_risky <- if (!all(c("alphagenome_SPLICE_SITES",
              "alphagenome_SPLICE_SITE_USAGE",
-             "alphagenome_SPLICE_JUNCTIONS") %in% names(var_data))) {
+             "alphagenome_SPLICE_JUNCTIONS") %in% names(mcols(var_data)))) {
     FALSE
   } else {
       ((var_data$alphagenome_SPLICE_SITES > alphagenome_threshold) +
