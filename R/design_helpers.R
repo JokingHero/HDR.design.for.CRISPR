@@ -354,7 +354,7 @@ export_design_results <- function(
       "disruption_first" = order(
         repair_template$disruption_bin,
         repair_template$n_snvs,
-        repair_template$total_disruption_count     # More cuts is better here
+        -repair_template$total_disruption_count     # More cuts is better here
       ),
 
       # STRATEGY 3: SAFETY FIRST
