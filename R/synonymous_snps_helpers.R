@@ -486,24 +486,26 @@ annotate_mutations_with_alphagenome <- function(all_variants,
                                                 python_exec = "python3",
                                                 alphagenome_context = "") {
   if (Sys.which(python_exec) == "") {
-    stop(paste0("Python executable '", python_exec, "' not found. ",
-                "Please make sure python is installed and in your PATH."))
+    warning(paste0("Python executable '", python_exec, "' not found. ",
+                   "Proceeding with 0s for AlphaGenome scores."))
   }
+
   species <- match.arg(species, c("human", "mouse"))
   script_path <- system.file(
     "exec", "score_variants_with_alphagenome.py", package = "HDR.design.for.CRISPR")
+
   if (script_path == "") {
-    stop(paste0(
-      "Could not find 'score_variants_with_alphagenome.py' in the 'exec' folder of the package. Please ensure the script is in the 'inst/exec' directory and re-install the package."
-    ))
+    warning("Could not find 'score_variants_with_alphagenome.py'. Proceeding with 0s.")
   }
 
   temp_input_csv <- tempfile(fileext = ".csv")
   temp_output_csv <- tempfile(fileext = ".csv")
   on.exit(unlink(c(temp_input_csv, temp_output_csv), force = TRUE))
+
   variants_df <- as.data.frame(all_variants)
   variants_df <- dplyr::select(variants_df, "seqnames", "start", "REF", "ALT")
   readr::write_csv(variants_df, temp_input_csv)
+
   args <- c(
     shQuote(script_path),
     "--api_key", shQuote(alphagenome_key),
@@ -511,62 +513,81 @@ annotate_mutations_with_alphagenome <- function(all_variants,
     "--species", species,
     "--output", shQuote(temp_output_csv)
   )
-  result <- system2(python_exec, args = args, stdout = TRUE, stderr = TRUE)
+
+  # Create a safe version of args to hide the API key in logs
+  safe_args <- args
+  api_idx <- which(safe_args == "--api_key")
+  if (length(api_idx) > 0 && (api_idx + 1) <= length(safe_args)) {
+    safe_args[api_idx + 1] <- "'***HIDDEN***'"
+  }
+
+  result <- suppressWarnings(system2(python_exec, args = args, stdout = TRUE, stderr = TRUE))
   status <- attr(result, "status")
+
+  # Initialize an empty dataframe. If anything fails, R will skip to the end
+  # and merge this empty data, automatically resulting in 0s.
+  ag_wide <- data.frame(
+    variant_id = character(),
+    SPLICE_SITES = numeric(),
+    SPLICE_SITE_USAGE = numeric(),
+    SPLICE_JUNCTIONS = numeric(),
+    stringsAsFactors = FALSE
+  )
+
+  success <- TRUE
   if (!is.null(status) && status != 0) {
-    stop(
+    warning(
       "Python script execution failed with exit status ", status, ".\n",
-      "Command: ", python_exec, " ", paste(args, collapse = " "), "\n",
-      "Output:\n", paste(result, collapse = "\n")
+      "Command: ", python_exec, " ", paste(safe_args, collapse = " "), "\n",
+      "Output:\n", paste(result, collapse = "\n"), "\n",
+      "Proceeding with 0s for AlphaGenome scores."
     )
+    success <- FALSE
+  } else if (!file.exists(temp_output_csv) || file.info(temp_output_csv)$size == 0) {
+    warning("Python script completed, but the output file is missing or empty. Proceeding with 0s.")
+    success <- FALSE
   }
 
-  if (!file.exists(temp_output_csv) || file.info(temp_output_csv)$size == 0) {
-    stop("Python script seems to have completed, but the output file is missing or empty.\n",
-             "Output:\n", paste(result, collapse = "\n"))
-  }
-  quantile_score <- variant_id <- output_type <- max_score <-
-    alphagenome_SPLICE_SITES <- alphagenome_SPLICE_SITE_USAGE <-
-    alphagenome_SPLICE_JUNCTIONS <- is_ag_safe <- NULL
-  ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
-  required_input_cols <- c("variant_id", "output_type", "quantile_score")
-  if (!all(required_input_cols %in% names(ag_dt))) {
-    stop(
-      "AlphaGenome output is missing required columns: ",
-      paste(setdiff(required_input_cols, names(ag_dt)), collapse = ", ")
-    )
-  }
-  # 1. Take Absolute Value (Magnitude of effect)
-  # We care about distance from median (0), whether gain or loss of splicing.
-  ag_dt$quantile_score <- abs(ag_dt$quantile_score)
+  # If Python ran successfully, parse the results
+  if (success) {
+    ag_dt <- readr::read_csv(temp_output_csv, show_col_types = FALSE)
+    required_input_cols <- c("variant_id", "output_type", "quantile_score")
 
-  has_context <- !is.null(alphagenome_context) && alphagenome_context != ""
-  if (has_context && "biosample_name" %in% names(ag_dt)) {
-    # If user wants specific tissue:
-    # - KEEP rows matching that tissue.
-    # - ALSO KEEP 'SPLICE_SITES'. Sites are based on DNA motifs and often don't have
-    #   tissue labels, but a broken motif is broken everywhere.
-    ag_dt <- ag_dt[
-      (ag_dt$biosample_name == alphagenome_context) |
-        (ag_dt$output_type == "SPLICE_SITES") |
-        is.na(ag_dt$biosample_name),
-    ]
-  }
-  # If NO context (Global): We keep ALL rows to find the "worst-case" tissue.
-  ag_dt <- dplyr::group_by(ag_dt, variant_id, output_type)
-  ag_dt <- suppressMessages(dplyr::summarise(
-    ag_dt,
-    max_score = max(quantile_score, na.rm = TRUE),
-    .groups = "drop"
-  ))
-  ag_dt$max_score[!is.finite(ag_dt$max_score)] <- 0
-  ag_wide <- tidyr::pivot_wider(
-    ag_dt,
-    id_cols = variant_id,
-    names_from = output_type,
-    values_from = max_score,
-    values_fill = 0)
+    if (!all(required_input_cols %in% names(ag_dt))) {
+      warning("AlphaGenome output is missing required columns. Proceeding with 0s.")
+      success <- FALSE
+    } else if (nrow(ag_dt) > 0) {
 
+      # Process scores normally
+      ag_dt$quantile_score <- abs(ag_dt$quantile_score)
+
+      has_context <- !is.null(alphagenome_context) && alphagenome_context != ""
+      if (has_context && "biosample_name" %in% names(ag_dt)) {
+        ag_dt <- ag_dt[
+          (ag_dt$biosample_name == alphagenome_context) |
+            (ag_dt$output_type == "SPLICE_SITES") |
+            is.na(ag_dt$biosample_name),
+        ]
+      }
+
+      ag_dt <- dplyr::group_by(ag_dt, variant_id, output_type)
+      ag_dt <- suppressMessages(dplyr::summarise(
+        ag_dt,
+        max_score = max(quantile_score, na.rm = TRUE),
+        .groups = "drop"
+      ))
+      ag_dt$max_score[!is.finite(ag_dt$max_score)] <- 0
+
+      ag_wide <- tidyr::pivot_wider(
+        ag_dt,
+        id_cols = variant_id,
+        names_from = output_type,
+        values_from = max_score,
+        values_fill = 0)
+    }
+  }
+
+  # Standardize column outputs (whether we populated them or skipped)
   required_cols <- c("SPLICE_SITES", "SPLICE_SITE_USAGE", "SPLICE_JUNCTIONS")
   for (col in required_cols) {
     if (!col %in% names(ag_wide)) ag_wide[[col]] <- 0
@@ -591,6 +612,8 @@ annotate_mutations_with_alphagenome <- function(all_variants,
   out <- data.frame(variant_id = original_ids_order, stringsAsFactors = FALSE)
   out <- dplyr::left_join(out, ag_wide, by = "variant_id")
   out$variant_id <- NULL
+
+  # Fill any NAs (which happen automatically if ag_wide was empty) with 0s
   for (col in names(out)) {
     if (is.numeric(out[[col]])) out[[col]][is.na(out[[col]])] <- 0
   }

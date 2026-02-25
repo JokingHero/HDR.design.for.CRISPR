@@ -320,7 +320,6 @@ create_template_and_probes <- function(selected_muts,
   }
 
   # 3. Score Guide against Final Template
-  # This replaces the old static calculation
   guide_stats <- assess_guide_disruption(current_guide, final_hdr_seq)
 
   # 4. Create Template Object
@@ -350,7 +349,6 @@ create_template_and_probes <- function(selected_muts,
 
   # --- 5. Design Probes if requested ---
   probes_out <- GRanges()
-  # If there are no muts to cover, no point in HDR probes
   if (do_probes) {
     candidates <- design_probes(
       s = final_hdr_seq,

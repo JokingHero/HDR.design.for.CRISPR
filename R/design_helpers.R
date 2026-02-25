@@ -281,6 +281,7 @@ export_design_results <- function(
     chrom, file.path(output_dir, paste0(design_name, ".fa")))
 
   if (length(guides) > 0) {
+    guides$is_disabled_by_default <- NULL
     guides <- guides[, !apply(guides, 2, function(x) all(is.na(x))), drop = FALSE]
   }
 

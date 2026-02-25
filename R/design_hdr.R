@@ -51,38 +51,38 @@
 #' @export
 #'
 design_hdr <- function(
-  design_name,
-  chrom,
-  variant_start,
-  variant_end,
-  REF,
-  ALT,
-  ALT_on_genome,
-  ALT_on_templates,
-  output_dir,
-  annotation,
-  genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-  optimization_scheme = "balanced",
-  maximum_mutations_per_template = 3,
-  filter_to_guide = "",
-  cut_distance_max = 30,
-  template_size = 120,
-  template_hr_arm_size = 30,
-  seed = 42,
-  intron_bp = 6,
-  exon_bp = 3,
-  snps = NULL,
-  clinvar = NULL,
-  cadd = NULL,
-  benign_cadd_threshold = 15,
-  score_efficiency = FALSE,
-  do_probes = TRUE,
-  primer3 = "",
-  alphagenome_key = "",
-  alphagenome_context = "",
-  alphagenome_threshold = 0.99,
-  splicing_count = 1,
-  python_exec = "python3"
+    design_name,
+    chrom,
+    variant_start,
+    variant_end,
+    REF,
+    ALT,
+    ALT_on_genome,
+    ALT_on_templates,
+    output_dir,
+    annotation,
+    genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
+    optimization_scheme = "balanced",
+    maximum_mutations_per_template = 3,
+    filter_to_guide = "",
+    cut_distance_max = 30,
+    template_size = 120,
+    template_hr_arm_size = 30,
+    seed = 42,
+    intron_bp = 6,
+    exon_bp = 3,
+    snps = NULL,
+    clinvar = NULL,
+    cadd = NULL,
+    benign_cadd_threshold = 15,
+    score_efficiency = FALSE,
+    do_probes = TRUE,
+    primer3 = "",
+    alphagenome_key = "",
+    alphagenome_context = "",
+    alphagenome_threshold = 0.99,
+    splicing_count = 1,
+    python_exec = "python3"
 ) {
   set.seed(seed) # Ensure reproducible randomness
 
@@ -172,6 +172,23 @@ design_hdr <- function(
     source_genomic_seq
   }
 
+  # --- Check for self-deactivated guides ---
+  message("Assessing guides for pre-existing disruption...")
+  guide_pre_stats <- lapply(seq_along(nrow(guides)), function(i) {
+    assess_guide_disruption(guides[i, ], preHDR_seq)
+  })
+
+  is_guide_disabled <- sapply(guide_pre_stats, function(stat) {
+    # A guide is disabled by default if it has >= 3 mismatches overall
+    # or if it has PAM disruption and >= 2 mismatches total.
+    stat$total_disrupton >= 3 || (stat$pam_disrupted >= 1 && stat$total_disrupton >= 2)
+  })
+  guides$is_disabled_by_default <- is_guide_disabled
+
+  if (all(is_guide_disabled) && length(guides) > 0) {
+    message("All guides are sufficiently disrupted by the primary variants. No synonymous SNPs are required.")
+  }
+
   # Align guides to the new template sequence to find their locations
   aln <- pwalign::pairwiseAlignment(
     DNAStringSet(guides$with_pam), preHDR_seq,
@@ -186,6 +203,10 @@ design_hdr <- function(
   # --- Create a detailed map of potential SNP locations linked to specific guides ---
   guides_on_template <- GRanges("target_seq", ranges = ranges(subject(aln)))
   names(guides_on_template) <- rownames(guides)
+
+  # Filter out guides that are already deactivated
+  guides_on_template <- guides_on_template[!guides$is_disabled_by_default]
+
   tiled_guides_on_template_list <- tile(guides_on_template, width = 1)
   position_in_footprint <- unlist(lapply(
     tiled_guides_on_template_list,
@@ -194,9 +215,13 @@ design_hdr <- function(
   tiled_guides_on_template <- unlist(tiled_guides_on_template_list,
                                      use.names = FALSE
   )
-  is_plus_strand <- guides$strand[
-    match(names(tiled_guides_on_template), rownames(guides))
-  ] == "+"
+  if (length(tiled_guides_on_template) > 0) {
+    is_plus_strand <- guides$strand[
+      match(names(tiled_guides_on_template), rownames(guides))
+    ] == "+"
+  } else {
+    is_plus_strand <- logical(0)
+  }
 
   # --- Protect homology arms from synonymous mutations ---
   active_region_on_template <- IRanges(
@@ -212,10 +237,8 @@ design_hdr <- function(
   position_in_footprint <- position_in_footprint[is_in_active_region]
   is_plus_strand <- is_plus_strand[is_in_active_region]
 
-  # TODO this is not necesairly stop, this might be that there are some
-  # disabled guides! that are valid and we can output these
   if (length(tiled_guides_on_template) == 0) {
-    stop("No potential SNP positions available within the active template region after excluding homology arms.")
+    message("No potential SNP positions available (or needed) within the active template region after excluding homology arms.")
   }
 
   position_in_guide <- integer(length(tiled_guides_on_template))
@@ -257,10 +280,8 @@ design_hdr <- function(
     intron_bp, exon_bp, clinvar, snps, cadd,
     alphagenome_key, python_exec, alphagenome_context)
 
-  # TODO: we could still have valid self deactivated guides here!!!
-  # same as above
   if (length(var_data) == 0) {
-    stop("No valid candidate SNPs could be generated for the active guides.")
+    message("No valid candidate SNPs could be generated for the active guides. Proceeding with 0-SNV templates.")
   }
   var_data <- augment_var_data_with_scores(
     var_data, optimization_scheme, benign_cadd_threshold,
@@ -276,7 +297,12 @@ design_hdr <- function(
     message("Working on guide: ", guide_id)
     current_guide <- guides[guide_id, ]
     guide_snps <- if (length(var_data) > 0) var_data[var_data$guide_name == guide_id] else GRanges()
-    for (mpt in 0:maximum_mutations_per_template) {
+
+    # Cap the design loop to 0 if the guide is already disabled by default
+    is_done <- current_guide$is_disabled_by_default
+    max_mpt <- if (is_done) 0 else maximum_mutations_per_template
+
+    for (mpt in 0:max_mpt) {
       selected_muts <- GRanges()
       if (mpt > 0) {
         # Select optimal subset of size 'mpt'
