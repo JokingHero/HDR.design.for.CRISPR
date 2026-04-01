@@ -61,7 +61,7 @@ def fetch_splicing_metadata(api_key, output_csv):
     final_df = final_df.drop_duplicates(subset=['species', 'biosample_name'])
     grouped_data = final_df.groupby('species')['biosample_name'].apply(list)
     output_dict = grouped_data.to_dict()
-    with open(output, 'w') as f:
+    with open(output_csv, 'w') as f:
         # indent=2 makes it human-readable (pretty printed)
         json.dump(output_dict, f, indent=2)
 
