@@ -1,3 +1,10 @@
+# Suppress R CMD check NOTEs for NSE column references used in dplyr/tidyr
+utils::globalVariables(c(
+  "variant_id", "output_type", "quantile_score", "max_score",
+  "alphagenome_SPLICE_SITES", "alphagenome_SPLICE_SITE_USAGE",
+  "alphagenome_SPLICE_JUNCTIONS"
+))
+
 #' Generate All Possible Single Nucleotide Variants (SNVs)
 #'
 #' @description
