@@ -10,7 +10,7 @@
 
 **Important:** Before installing this R package, you must ensure the following system dependencies and Python environments are set up.
 
-### 1. Python Environment & AlphaGenome (Optional)
+### 1. Python Environment & AlphaGenome and CRISPR-MFH model (Optional)
 This package relies on Google DeepMind's AlphaGenome for variant scoring.
 
 1.  **Get your API Key:**
@@ -24,6 +24,7 @@ This package relies on Google DeepMind's AlphaGenome for variant scoring.
     pip install -U alphagenome
     pip install -U argparse
     pip install -U pandas
+    pip install -U tensorflow
     ```
 
 ### 2. Primer3 (Optional)  
