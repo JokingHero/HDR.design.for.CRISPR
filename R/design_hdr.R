@@ -35,6 +35,7 @@
 #' @param benign_cadd_threshold Numeric. CADD score below which a variant is
 #'   considered high-confidence benign. Default 15.
 #' @param score_efficiency Logical. If `TRUE`, score guides using models from the `crisprScore` package.
+#' @param crispr_mfh_based_scoring Logical. If `TRUE`, use CRISPR-MFH model as the primary driver for disruption bin specification. Default `TRUE`.
 #' @param do_probes Logical. If `TRUE`, design qPCR probes for HDR, NHEJ, and Reference.
 #' @param primer3 Optional. Full path to the `primer3_core` executable to design PCR primers.
 #' @param alphagenome_key Your key to the alphagenome service.
@@ -45,6 +46,7 @@
 #' `alphagenome_threshold` to consider a SNV as unsafe. Because we are using max
 #' across all tissues and cell types we want to be sure an SNV is dangerous.
 #' @param python_exec path to the python3 that has alphagenome installed.
+#'   Also requires tensorflow and numpy for CRISPR-MFH template scoring.
 #' @return This function does not return a value. It writes all output files to the specified `output_dir`.
 #' @import Biostrings GenomicFeatures GenomicRanges SummarizedExperiment IRanges BSgenome BSgenome.Hsapiens.UCSC.hg38 VariantAnnotation GenomeInfoDb
 #' @importFrom utils write.table combn
@@ -82,7 +84,8 @@ design_hdr <- function(
     alphagenome_context = "",
     alphagenome_threshold = 0.99,
     splicing_count = 1,
-    python_exec = "python3"
+    python_exec = "python3",
+    crispr_mfh_based_scoring = TRUE
 ) {
   set.seed(seed) # Ensure reproducible randomness
 
@@ -331,6 +334,16 @@ design_hdr <- function(
     }
   }
 
+  # --- Score templates with CRISPR-MFH (graceful: NA if unavailable) ---
+  if (length(repair_template) > 0) {
+    message("Scoring templates with CRISPR-MFH...")
+    mfh_results <- score_templates_with_mfh(
+      repair_template, guides, python_exec)
+    repair_template$crispr_mfh_score <- mfh_results$crispr_mfh_score
+    repair_template$baseline_crispr_mfh <- mfh_results$baseline_crispr_mfh
+    repair_template$relative_crispr_mfh <- mfh_results$relative_crispr_mfh
+  }
+
   # --- 4. Design Control Probes and Amplification Primers ---
 
   # Consolidate all probes into one GRanges object
@@ -415,7 +428,8 @@ design_hdr <- function(
     genome, txdb, edit_region,
     primers = primers,
     all_probes = all_probes,
-    optimization_scheme = optimization_scheme
+    optimization_scheme = optimization_scheme,
+    crispr_mfh_based_scoring = crispr_mfh_based_scoring
   )
 
   message("Design process complete.")

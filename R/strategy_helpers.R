@@ -374,3 +374,182 @@ create_template_and_probes <- function(selected_muts,
 
   list(template = template_gr, probes = probes_out)
 }
+
+#' @title Score HDR Templates with CRISPR-MFH
+#' @description Calls the CRISPR-MFH Python model to predict Cas9 cleavage
+#'   probability for each guide-vs-template alignment pair. The score represents
+#'   the probability that Cas9 will still cleave the template (higher = more
+#'   dangerous, lower = better disrupted).
+#'
+#'   Additionally computes a per-guide baseline score (guide vs itself) and a
+#'   relative score (`crispr_mfh_score / baseline`) for cross-guide
+#'   comparability. The CRISPR-MFH model is optimized for Spearman correlation,
+#'   so raw scores are not directly comparable between different guides — the
+#'   baseline normalization corrects for this.
+#'
+#'   Gracefully returns NA for all templates if the Python environment is not
+#'   available, the model is missing, or the inference fails.
+#'
+#' @param repair_template A GRanges of templates with `aln_guide` and
+#'   `aln_template` metadata columns (23bp with PAM included).
+#' @param guides The guides data.frame/matrix with `with_pam` and `strand`
+#'   columns. Row names are guide IDs (e.g., "CCN_1", "NGG_3").
+#' @param python_exec Path to a Python 3 executable with tensorflow and numpy.
+#'   If empty string or "python3" (unset default), MFH scoring is skipped.
+#' @return A named list with three numeric vectors of length
+#'   \code{length(repair_template)}:
+#'   \describe{
+#'     \item{crispr_mfh_score}{Raw cleavage probability (0-1), or NA.}
+#'     \item{baseline_crispr_mfh}{Per-guide baseline score (guide vs itself),
+#'       or NA. Clamped to a minimum of 1e-6 to avoid division by zero.}
+#'     \item{relative_crispr_mfh}{Relative remaining activity
+#'       (crispr_mfh_score / baseline), or NA.}
+#'   }
+#' @keywords internal
+#'
+score_templates_with_mfh <- function(repair_template, guides, python_exec) {
+  n <- length(repair_template)
+  na_result <- list(
+    crispr_mfh_score = rep(NA_real_, n),
+    baseline_crispr_mfh = rep(NA_real_, n),
+    relative_crispr_mfh = rep(NA_real_, n)
+  )
+
+  # Guard: skip if python_exec is not explicitly set
+  if (is.null(python_exec) || python_exec == "" || python_exec == "python3") {
+    message("CRISPR-MFH: Skipping (python_exec not set to a TF-enabled Python).")
+    return(na_result)
+  }
+
+  # Guard: check predict.py exists
+  predict_script <- system.file("exec", "CRISPR-MFH", "predict.py",
+                                package = "HDRdesignForCRISPR", mustWork = FALSE)
+  if (predict_script == "") {
+    # Fallback: try relative to package source directory
+    predict_script <- file.path(
+      system.file(package = "HDRdesignForCRISPR"),
+      "..", "exec", "CRISPR-MFH", "predict.py")
+    if (!file.exists(predict_script)) {
+      # Last resort: try from the package root directly
+      pkg_root <- find.package("HDRdesignForCRISPR", quiet = TRUE)
+      if (length(pkg_root) > 0) {
+        predict_script <- file.path(pkg_root, "exec", "CRISPR-MFH", "predict.py")
+      }
+    }
+  }
+
+  if (!file.exists(predict_script)) {
+    warning("CRISPR-MFH: predict.py not found. Skipping MFH scoring.")
+    return(na_result)
+  }
+
+  if (n == 0) return(na_result)
+
+  # --- Build combined CSV: baseline rows (guide vs guide) + template rows ---
+
+  # Determine guide IDs for each template
+  template_names <- names(repair_template)
+  template_guide_ids <- sub("_with_.*", "", template_names)
+  template_strand <- ifelse(startsWith(template_names, "CCN_"), "-", "+")
+
+  # Unique guides that appear in templates
+  unique_guide_ids <- unique(template_guide_ids)
+  n_baselines <- length(unique_guide_ids)
+
+  # Build baseline rows: guide aligned against itself (perfect match)
+  baseline_df <- data.frame(
+    aln_guide = guides[unique_guide_ids, "with_pam"],
+    aln_template = guides[unique_guide_ids, "with_pam"],
+    strand = as.character(guides[unique_guide_ids, "strand"]),
+    stringsAsFactors = FALSE
+  )
+
+  # Build template rows
+  template_df <- data.frame(
+    aln_guide = repair_template$aln_guide,
+    aln_template = repair_template$aln_template,
+    strand = template_strand,
+    stringsAsFactors = FALSE
+  )
+
+  # Combine: baselines first, then templates
+  combined_df <- rbind(baseline_df, template_df)
+
+  # Write combined CSV and run predict.py once
+  input_csv <- tempfile(fileext = ".csv")
+  output_csv <- tempfile(fileext = ".csv")
+  on.exit(unlink(c(input_csv, output_csv)), add = TRUE)
+
+  utils::write.csv(combined_df, input_csv, row.names = FALSE, quote = FALSE)
+
+  result <- tryCatch({
+    system2(
+      command = python_exec,
+      args = c(predict_script, "--mode", "template",
+               "--input", input_csv, "--output", output_csv),
+      stdout = TRUE, stderr = TRUE
+    )
+  }, error = function(e) {
+    warning("CRISPR-MFH: Failed to run predict.py: ", e$message)
+    return(NULL)
+  })
+
+  exit_code <- attr(result, "status")
+  if (!is.null(exit_code) && exit_code != 0) {
+    warning("CRISPR-MFH: predict.py exited with code ", exit_code,
+            ". stderr:\n", paste(result, collapse = "\n"))
+    return(na_result)
+  }
+
+  if (!file.exists(output_csv)) {
+    warning("CRISPR-MFH: Output CSV not created. Skipping.")
+    return(na_result)
+  }
+
+  scored <- tryCatch(
+    utils::read.csv(output_csv, stringsAsFactors = FALSE),
+    error = function(e) {
+      warning("CRISPR-MFH: Failed to read output CSV: ", e$message)
+      return(NULL)
+    }
+  )
+
+  if (is.null(scored) || !"crispr_mfh_score" %in% names(scored)) {
+    warning("CRISPR-MFH: Output CSV missing crispr_mfh_score column.")
+    return(na_result)
+  }
+
+  all_scores <- as.numeric(scored$crispr_mfh_score)
+  expected_total <- n_baselines + n
+  if (length(all_scores) != expected_total) {
+    warning("CRISPR-MFH: Row count mismatch (", length(all_scores),
+            " vs expected ", expected_total, ").")
+    return(na_result)
+  }
+
+  # --- Split results: baselines then templates ---
+  baseline_scores <- all_scores[seq_len(n_baselines)]
+  template_scores <- all_scores[(n_baselines + 1):expected_total]
+
+  # Build per-guide baseline lookup (clamp to 1e-6 to avoid division by zero)
+  names(baseline_scores) <- unique_guide_ids
+  baseline_scores <- pmax(baseline_scores, 1e-6, na.rm = FALSE)
+  # Keep NA as NA (pmax preserves NA)
+  baseline_scores[is.na(baseline_scores)] <- NA_real_
+
+  # Map each template to its guide's baseline
+  per_template_baseline <- baseline_scores[template_guide_ids]
+
+  # Compute relative remaining activity
+  relative_scores <- template_scores / per_template_baseline
+  # If either score is NA, relative is NA (automatic from R division)
+
+  message("CRISPR-MFH: Scored ", sum(!is.na(template_scores)), "/", n,
+          " templates across ", n_baselines, " guides.")
+
+  return(list(
+    crispr_mfh_score = template_scores,
+    baseline_crispr_mfh = as.numeric(per_template_baseline),
+    relative_crispr_mfh = as.numeric(relative_scores)
+  ))
+}

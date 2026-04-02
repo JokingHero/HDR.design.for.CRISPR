@@ -16,7 +16,8 @@ export_design_results(
   edit_region,
   primers,
   all_probes,
-  optimization_scheme
+  optimization_scheme,
+  crispr_mfh_based_scoring = TRUE
 )
 }
 \description{

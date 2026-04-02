@@ -36,7 +36,8 @@ design_hdr(
   alphagenome_context = "",
   alphagenome_threshold = 0.99,
   splicing_count = 1,
-  python_exec = "python3"
+  python_exec = "python3",
+  crispr_mfh_based_scoring = TRUE
 )
 }
 \arguments{
@@ -111,7 +112,10 @@ prediction is not considered safe when above it}
 \code{alphagenome_threshold} to consider a SNV as unsafe. Because we are using max
 across all tissues and cell types we want to be sure an SNV is dangerous.}
 
-\item{python_exec}{path to the python3 that has alphagenome installed.}
+\item{python_exec}{path to the python3 that has alphagenome installed.
+Also requires tensorflow and numpy for CRISPR-MFH template scoring.}
+
+\item{crispr_mfh_based_scoring}{Logical. If \code{TRUE}, use CRISPR-MFH model as the primary driver for disruption bin specification. Default \code{TRUE}.}
 }
 \value{
 This function does not return a value. It writes all output files to the specified \code{output_dir}.

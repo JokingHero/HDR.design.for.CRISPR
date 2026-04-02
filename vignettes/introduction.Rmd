@@ -30,6 +30,7 @@ This is an algorithmic specification of how guide scoring, SNV scoring, SNV sele
 Primary knobs that change ranking behavior:
 - `optimization_scheme` in `{balanced, disruption_first, safety_first}`
 - `maximum_variants_per_template` (max introduced SNVs per template)
+- `crispr_mfh_based_scoring` (whether model-driven disruption thresholds are used)
 - `score_efficiency` (whether guide efficiency models are run)
 - `alphagenome_context` (optional tissue/context filter for AlphaGenome)
 - optional annotations: dbSNP, CADD, ClinVar, AlphaGenome
@@ -243,6 +244,10 @@ For each produced template:
   - `pam_disrupted_count`
   - `seed_disrupted_count`
   - `total_disruption_count`
+- CRISPR-MFH scoring:
+  - `crispr_mfh_score`: raw cleavage probability
+  - `baseline_crispr_mfh`: per-guide baseline score
+  - `relative_crispr_mfh`: normalized score for cross-guide comparison
 - alignment strings for inspection:
   - `aln_guide`
   - `aln_template`
@@ -259,8 +264,16 @@ Seed/PAM mismatch windows are strand-aware:
 
 ### 10.1 `disruption_bin` (lower is better)
 
-Base bins use PAM status and total disruption count:
+When `crispr_mfh_based_scoring = TRUE` (the default) and model output is available, the template disruption score is driven by machine learning predictions:
+- `relative_crispr_mfh < 0.1` -> bin 0 (Platinum)
+- `relative_crispr_mfh < 0.2` -> bin 1 (Gold)
+- `relative_crispr_mfh < 0.4` -> bin 2 (Silver)
+- `relative_crispr_mfh < 0.6` -> bin 3 (Bronze)
+- `relative_crispr_mfh < 0.8` -> bin 4 (Iron)
+- `relative_crispr_mfh >= 0.8` -> bin 5 (Dirt)
+- templates with zero SNVs (`total_disruption_count = 0`) override to bin 5 (Dirt).
 
+If `crispr_mfh_based_scoring = FALSE` or if model execution fails, a deterministic heuristic fallback is used based on mismatch count and PAM status:
 - bin 0 (Platinum): `pam_disrupted_count >= 1` AND `total_disruption_count >= 2`
 - bin 1 (Gold): `pam_disrupted_count >= 1` AND `total_disruption_count == 1`
 - bin 2 (Silver): `pam_disrupted_count == 0` AND `total_disruption_count >= 3`
@@ -282,20 +295,23 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
 - `balanced`:
   1. `any_overlaps_noncoding` (FALSE first)
   2. `disruption_bin`
-  3. `total_snv_quality_score`
-  4. `n_snvs`
-  5. `is_ag_risky`
+  3. `relative_crispr_mfh` (Ascending)
+  4. `total_snv_quality_score`
+  5. `n_snvs`
+  6. `is_ag_risky`
 
 - `disruption_first`:
   1. `disruption_bin` (Ascending)
-  2. `n_snvs` (Ascending)
-  3. -`total_disruption_count` (Descending; more cuts is better)
+  2. `relative_crispr_mfh` (Ascending)
+  3. `n_snvs` (Ascending)
+  4. -`total_disruption_count` (Descending; more cuts is better)
 
 - `safety_first`:
   1. `any_overlaps_noncoding`
   2. `total_snv_quality_score`
   3. `disruption_bin`
-  4. `n_snvs`
+  4. `relative_crispr_mfh` (Ascending)
+  5. `n_snvs`
 
 ## 11. Determinism and Edge Behavior
 

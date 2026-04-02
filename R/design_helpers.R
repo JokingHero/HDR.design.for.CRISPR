@@ -266,7 +266,8 @@ export_design_results <- function(
     variants_genomic,
     var_data, guides, repair_template,
     genome, txdb, edit_region,
-    primers, all_probes, optimization_scheme) {
+    primers, all_probes, optimization_scheme,
+    crispr_mfh_based_scoring = TRUE) {
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
   # create large region of 1k BP around the edit window
   large_window <- promoters(
@@ -303,6 +304,9 @@ export_design_results <- function(
     # Assumption: total_snv_quality_score is the sum/max of safety tiers (Lower is Better)
     if (is.null(repair_template$total_snv_quality_score)) repair_template$total_snv_quality_score <- 999
     if (is.null(repair_template$is_ag_risky)) repair_template$is_ag_risky <- FALSE
+    if (is.null(repair_template$crispr_mfh_score)) repair_template$crispr_mfh_score <- NA_real_
+    if (is.null(repair_template$baseline_crispr_mfh)) repair_template$baseline_crispr_mfh <- NA_real_
+    if (is.null(repair_template$relative_crispr_mfh)) repair_template$relative_crispr_mfh <- NA_real_
     repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
 
     # --- BINNING ---
@@ -311,14 +315,38 @@ export_design_results <- function(
     pam_disrupted <- repair_template$pam_disrupted_count >= 1
     total_disruption <- repair_template$total_disruption_count
 
-    base_disruption_bin <- rep(5L, length(repair_template))
+    # Old logic (heuristic fallback)
+    heuristic_bin <- rep(5L, length(repair_template))
     has_useful_disruption <- total_disruption > 0
+    heuristic_bin[has_useful_disruption & pam_disrupted & total_disruption >= 2] <- 0L
+    heuristic_bin[has_useful_disruption & pam_disrupted & total_disruption == 1] <- 1L
+    heuristic_bin[has_useful_disruption & !pam_disrupted & total_disruption >= 3] <- 2L
+    heuristic_bin[has_useful_disruption & !pam_disrupted & total_disruption == 2] <- 3L
+    heuristic_bin[has_useful_disruption & !pam_disrupted & total_disruption == 1] <- 4L
 
-    base_disruption_bin[has_useful_disruption & pam_disrupted & total_disruption >= 2] <- 0L
-    base_disruption_bin[has_useful_disruption & pam_disrupted & total_disruption == 1] <- 1L
-    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption >= 3] <- 2L
-    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption == 2] <- 3L
-    base_disruption_bin[has_useful_disruption & !pam_disrupted & total_disruption == 1] <- 4L
+    # Determine base_disruption_bin
+    mfh_rel <- repair_template$relative_crispr_mfh
+    use_model <- crispr_mfh_based_scoring & !is.na(mfh_rel)
+    base_disruption_bin <- heuristic_bin
+
+    if (any(use_model)) {
+      m <- which(use_model)
+      r <- mfh_rel[m]
+      td <- total_disruption[m]
+
+      # Rule 1: Model-driven thresholds (Default bin 5 for >= 0.8)
+      model_bin <- rep(5L, length(m))
+      model_bin[r < 0.8] <- 4L
+      model_bin[r < 0.6] <- 3L
+      model_bin[r < 0.4] <- 2L
+      model_bin[r < 0.2] <- 1L
+      model_bin[r < 0.1] <- 0L
+
+      # Rule 2: No edits override
+      model_bin[td == 0] <- 5L
+
+      base_disruption_bin[m] <- model_bin
+    }
 
     unsafe_penalty <- if (optimization_scheme == "disruption_first") {
       rep(0L, length(repair_template))
@@ -332,6 +360,10 @@ export_design_results <- function(
     repair_template$disruption_bin <- pmin(5L, base_disruption_bin + unsafe_penalty)
 
     # --- HIERARCHICAL SORTING ---
+    # Use relative_crispr_mfh for tiebreaking across all schemes
+    mfh_sort <- repair_template$relative_crispr_mfh
+    mfh_sort[is.na(mfh_sort)] <- Inf # NA sorts last in ascending
+
     ordering <- switch(
       optimization_scheme,
 
@@ -339,21 +371,22 @@ export_design_results <- function(
       # Logic:
       # 1. Veto Tier 5 structural risks immediately.
       # 2. Prioritize Efficacy (Bin 1 > 2 > 3).
-      # 3. Within the same efficacy bin, prioritize Safety (lower quality score).
+      # 3. Then Safety (lower quality score).
       # 4. If efficacy and safety are equal, prioritize Parsimony (fewer SNVs).
       "balanced" = order(
         repair_template$any_overlaps_noncoding,    # Hard Safety Constraint
         repair_template$disruption_bin,            # Primary: Efficacy Confidence
         repair_template$total_snv_quality_score,   # Secondary: Safety
-        repair_template$n_snvs,                    # Tertiary: Parsimony
+        repair_template$n_snvs,                    # Quaternary: Parsimony
         repair_template$is_ag_risky                # Tie-breaker
       ),
 
       # STRATEGY 2: DISRUPTION FIRST
       # Logic: Get the best Disruption Bin possible.
-      # Use Parsimony as the secondary sort (don't care about subtle safety/CADD).
+      # Use relative MFH then Parsimony as the secondary sort (don't care about subtle safety/CADD).
       "disruption_first" = order(
         repair_template$disruption_bin,
+        mfh_sort,
         repair_template$n_snvs,
         -repair_template$total_disruption_count     # More cuts is better here
       ),
@@ -383,6 +416,9 @@ export_design_results <- function(
       "pam_disrupted_count",
       "seed_disrupted_count",
       "total_disruption_count",
+      "crispr_mfh_score",
+      "baseline_crispr_mfh",
+      "relative_crispr_mfh",
       "aln_guide",
       "aln_template",
       "any_overlaps_noncoding",

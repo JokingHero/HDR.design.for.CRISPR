@@ -37,7 +37,8 @@ prepare_candidate_snvs(
 
 \item{alphagenome_key}{Your key to the alphagenome service.}
 
-\item{python_exec}{path to the python3 that has alphagenome installed.}
+\item{python_exec}{path to the python3 that has alphagenome installed.
+Also requires tensorflow and numpy for CRISPR-MFH template scoring.}
 
 \item{alphagenome_context}{Celltypes for which to filter alphagenome scores.}
 }
