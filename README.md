@@ -72,11 +72,11 @@ devtools::install_github("JokingHero/HDR.design.for.CRISPR")
 
 The core function of this package is `design_hdr`. Below is a functional example using the `STAT3` gene dataset included with the package.
 
-### Example: STAT3 Mutation Correction
+### Example: STAT3 Variant Correction
 
-This example demonstrates how to design a repair template to **correct** a mutation.  
+This example demonstrates how to design a repair template to **correct** a variant.  
 
-* **Scenario:** The cell line has a specific mutation (`A`) on the genome.  
+* **Scenario:** The cell line has a specific variant (`A`) on the genome.  
 * **Goal:** We want to revert it to the Wild Type (`G`).  
 
 ```r
@@ -100,14 +100,14 @@ design_hdr(
   variant_start = 42346635,
   variant_end = 42346635,
   REF = "G",   # The Wild Type base
-  ALT = "A",   # The Mutation currently present in the cell
+  ALT = "A",   # The variant currently present in the cell
   
   # Logic Vectors:
-  # TRUE: The cell line currently HAS the mutation (A)
+  # TRUE: The cell line currently HAS the variant (A)
   ALT_on_genome = TRUE,  
   
   # FALSE: We want the repair template to contain the REF (G), not the ALT
-  # (Set this to TRUE if you were INTRODUCING a specific mutation instead)
+  # (Set this to TRUE if you were INTRODUCING a specific variant instead)
   ALT_on_templates = FALSE,
 
   output_dir = output_dir,
@@ -116,7 +116,7 @@ design_hdr(
   
   # Optimization settings
   optimization_scheme = "balanced",
-  maximum_mutations_per_template = 3,
+  maximum_variants_per_template = 3,
   
   # Optional: Improve design safety with known SNPs and CADD scores
   # (Requires installed 'SNPlocs' and 'cadd' packages)
@@ -131,11 +131,11 @@ print(paste("Design results written to:", output_dir))
 
 | Parameter | Description |
 | :--- | :--- |
-| `optimization_scheme` | Controls how synonymous SNPs are selected. <br>• **balanced**: Balances safety, PAM disruption, and SNP quality.<br>• **safety_first**: Avoids non-coding overlaps/splice sites.<br>• **disruption_first**: Prioritizes PAM/Guide disruption. |
-| `ALT_on_genome` | `TRUE/FALSE`. Does the cell line you are editing currently possess the ALT mutation? (Select `FALSE` if targeting Wild Type). |
-| `ALT_on_templates` | `TRUE/FALSE`. Do you want the repair template to contain the ALT mutation? (Select `TRUE` if you are introducing the specific mutation). |
+| `optimization_scheme` | Controls how synonymous SNVs are selected. <br>• **balanced**: Balances safety, PAM disruption, and SNV quality.<br>• **safety_first**: Avoids non-coding overlaps/splice sites.<br>• **disruption_first**: Prioritizes PAM/Guide disruption. |
+| `ALT_on_genome` | `TRUE/FALSE`. Does the cell line you are editing currently possess the ALT variant? (Select `FALSE` if targeting Wild Type). |
+| `ALT_on_templates` | `TRUE/FALSE`. Do you want the repair template to contain the ALT variant? (Select `TRUE` if you are introducing the specific variant). |
 | `alphagenome_context` | (Optional) Cell types for which to filter AlphaGenome scores. |
-| `clinvar` / `cadd` | (Optional) Paths to ClinVar VCF or CADD scoring functions to avoid introducing pathogenic synonymous mutations. |
+| `clinvar` / `cadd` | (Optional) Paths to ClinVar VCF or CADD scoring functions to avoid introducing pathogenic synonymous variants. |
 
 ---
 
@@ -146,7 +146,7 @@ The package generates a directory containing your design results. The output for
 👉 **[Understanding Output & Variant Scoring](https://www.alphagenomedocs.com/variant_scoring.html)**
 
 Typical outputs include:  
-* **Repair Templates:** Sequences with optimal synonymous mutations.  
+* **Repair Templates:** Sequences with optimal synonymous variants.  
 * **Guides:** Scored CRISPR guides (using `crisprScore`).  
 * **Probes:** qPCR probes for HDR, NHEJ, and Reference detection.  
 * **Primers:** PCR primers flanking the edit region (if `primer3` is provided).  

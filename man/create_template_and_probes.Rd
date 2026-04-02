@@ -2,7 +2,7 @@
 % Please edit documentation in R/strategy_helpers.R
 \name{create_template_and_probes}
 \alias{create_template_and_probes}
-\title{Create HDR template and probes from a set of mutations}
+\title{Create HDR template and probes from a set of variants}
 \usage{
 create_template_and_probes(
   selected_muts,
@@ -20,7 +20,7 @@ create_template_and_probes(
 A list containing the 'template' and 'probes' GRanges.
 }
 \description{
-Injects selected SNPs into the base template sequence, calculates
+Injects selected SNVs into the base template sequence, calculates
 summary statistics based on re-alignment, and designs validation probes.
 }
 \keyword{internal}

@@ -2,7 +2,7 @@
 % Please edit documentation in R/coordinate_mapping.R
 \name{reverse_variants}
 \alias{reverse_variants}
-\title{Create a set of variants that can reverse a mutation injection process.}
+\title{Create a set of variants that can reverse a variant injection process.}
 \usage{
 reverse_variants(variants)
 }
@@ -12,9 +12,9 @@ reverse_variants(variants)
 }
 \value{
 A GRanges object representing the reverse variants. The ranges are in
-the coordinate system of the \emph{mutated} sequence. The 'ALT' metadata column
-contains the sequence needed to revert the mutation (i.e., the original 'REF').
+the coordinate system of the \emph{modified} sequence. The 'ALT' metadata column
+contains the sequence needed to revert the variant (i.e., the original 'REF').
 }
 \description{
-Create a set of variants that can reverse a mutation injection process.
+Create a set of variants that can reverse a variant injection process.
 }

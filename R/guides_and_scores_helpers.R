@@ -87,7 +87,7 @@ process_strand <- function(
 
 
 #' @title Get and Score Guides (Refactored)
-#' @description For a given genomic location, this function introduces a mutation,
+#' @description For a given genomic location, this function introduces a variant,
 #' designs potential CRISPR guides, and scores them for efficiency. It is designed
 #' to be robust to failures in individual scoring algorithms.
 #'

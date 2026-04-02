@@ -32,7 +32,7 @@ A GRanges object containing all found guides, their sequences, scores
 (for successfully run algorithms), and a final aggregated rank.
 }
 \description{
-For a given genomic location, this function introduces a mutation,
+For a given genomic location, this function introduces a variant,
 designs potential CRISPR guides, and scores them for efficiency. It is designed
 to be robust to failures in individual scoring algorithms.
 }

@@ -49,20 +49,20 @@ get_genomic_seq <- function(
   return(seq)
 }
 
-#' @title Design templates with innocent synonymous SNPs
+#' @title Design templates with innocent synonymous SNVs
 #'
-#' @description Design templates with mutations that will not change coding sequence
+#' @description Design templates with variants that will not change coding sequence
 #'
 #' @param ensemble_transcript_id This has to be ensemble transcript id e.g. ENST00000307851.9
 #' @param annotation File path to the annotation file, a gff3.
-#' @param output_file Path and name of the out fasta file e.g "~/mutated_cds.fa"
+#' @param output_file Path and name of the out fasta file e.g "~/diversified_cds.fa"
 #' @param genome BSgenome of your genome, compatible with annotation file, by default it is hg38.
 #' @param seed Ensures reproducibility of the random parts of the pipeline.
 #' @return writes file to `output_file`, might overwrite
 #' @import Biostrings GenomicFeatures GenomicRanges IRanges BSgenome.Hsapiens.UCSC.hg38
 #' @export
 #'
-synonymously_mutate_cds <- function(
+synonymously_diversify_cds <- function(
     ensemble_transcript_id,
     annotation,
     output_file,
@@ -79,7 +79,7 @@ synonymously_mutate_cds <- function(
 
   codon_count <- length(aa_cds_seq)
 
-  # figure out all possible mutations that are synonymous
+  # figure out all possible variants that are synonymous
   synonymous_cds <- c()
   for (i in seq_len(codon_count)) {
     alternate <- Biostrings::GENETIC_CODE[Biostrings::GENETIC_CODE == as.character(aa_cds_seq[i])]
@@ -114,7 +114,7 @@ synonymously_mutate_cds <- function(
   }
 
   synonymous_cds <- DNAStringSet(synonymous_cds)
-  names(synonymous_cds) <- paste0(ensemble_transcript_id, " synonymous mutated with seed ", seed)
+  names(synonymous_cds) <- paste0(ensemble_transcript_id, " synonymously diversified with seed ", seed)
 
   # first we write the sequence
   Biostrings::writeXStringSet(synonymous_cds, output_file)

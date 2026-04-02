@@ -29,7 +29,7 @@ This is an algorithmic specification of how guide scoring, SNV scoring, SNV sele
 
 Primary knobs that change ranking behavior:
 - `optimization_scheme` in `{balanced, disruption_first, safety_first}`
-- `maximum_mutations_per_template` (max introduced SNVs per template)
+- `maximum_variants_per_template` (max introduced SNVs per template)
 - `score_efficiency` (whether guide efficiency models are run)
 - `alphagenome_context` (optional tissue/context filter for AlphaGenome)
 - optional annotations: dbSNP, CADD, ClinVar, AlphaGenome
@@ -105,7 +105,7 @@ Apply filters in sequence:
      - synonymous, or
      - moot due to already-broken transcript state (i.e., 
         if your desired primary edit introduces a frameshift or stop codon, 
-        the software allows non-synonymous PAM-blocking mutations downstream,
+        the software allows non-synonymous PAM-blocking variants downstream,
         as the gene is already knocked out), or
      - non-coding for that SNV.
 
@@ -128,9 +128,9 @@ Derived from `position_in_guide`:
 
 ### 6.2 dbSNP priority (`dbSNP_priority`, lower is better)
 
-- 1: known compatible SNP allele exists
-- 2: overlapping SNP exists but allele is not compatible
-- 3: no informative SNP evidence
+- 1: known compatible dbSNP allele exists
+- 2: overlapping dbSNP entry exists but allele is not compatible
+- 3: no informative dbSNP evidence
 
 ### 6.3 CADD feature
 
@@ -236,7 +236,7 @@ For each produced template:
 
 - `snvs_introduced`: semicolon list of selected SNV ids
 - `total_cadd`: sum of selected `cadd_imputed`
-- `total_snp_quality_score`: sum of selected `dbSNP_priority`
+- `total_snv_quality_score`: sum of selected `dbSNP_priority`
 - `is_ag_risky`: if any SNV is risky for splicing as predicted by alphagenome
 - `any_overlaps_noncoding`: any selected SNV overlaps noncoding annotations
 - disruption metrics from guide-vs-template alignment:
@@ -282,7 +282,7 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
 - `balanced`:
   1. `any_overlaps_noncoding` (FALSE first)
   2. `disruption_bin`
-  3. `total_snp_quality_score`
+  3. `total_snv_quality_score`
   4. `n_snvs`
   5. `is_ag_risky`
 
@@ -293,7 +293,7 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
 
 - `safety_first`:
   1. `any_overlaps_noncoding`
-  2. `total_snp_quality_score`
+  2. `total_snv_quality_score`
   3. `disruption_bin`
   4. `n_snvs`
 

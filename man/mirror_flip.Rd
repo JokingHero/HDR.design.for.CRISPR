@@ -2,7 +2,7 @@
 % Please edit documentation in R/utils.R
 \name{mirror_flip}
 \alias{mirror_flip}
-\title{Flip IRanges around a central mutation point.}
+\title{Flip IRanges around a central variant point.}
 \usage{
 mirror_flip(ranges, extension)
 }
@@ -16,5 +16,5 @@ The total length will be \code{2 * extension + 1}, and the mirror point will be 
 A new IRanges object with the ranges flipped.
 }
 \description{
-Flip IRanges around a central mutation point.
+Flip IRanges around a central variant point.
 }

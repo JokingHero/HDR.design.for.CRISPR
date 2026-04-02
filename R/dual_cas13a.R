@@ -405,7 +405,7 @@ get_offtarget_count_MM0 <- function(guides_target_seq, offtargets_seq) {
 #' @param input_fasta A DNAStringSet fasta file path.
 #' @param position Position on input target to design for.
 #' @param guide_length Normally 28
-#' @param allowed_positions 3:5, where we want guide to have mutation
+#' @param allowed_positions 3:5, where we want guide to have variant
 #' @param t7_promoter "GAAATTAATACGACTCACTATAGGG" we attach this to left primer
 #' @param linker "GCGCT" linker sequence - this is default optimized 5-mer
 #' @param primer3_path Path to primer3_core.

@@ -17,7 +17,7 @@ design_hdr(
   annotation,
   genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
   optimization_scheme = "balanced",
-  maximum_mutations_per_template = 3,
+  maximum_variants_per_template = 3,
   filter_to_guide = "",
   cut_distance_max = 30,
   template_size = 120,
@@ -40,7 +40,7 @@ design_hdr(
 )
 }
 \arguments{
-\item{design_name}{A short name for this set of mutations, e.g., "tyr82cys".0,}
+\item{design_name}{A short name for this set of variants, e.g., "tyr82cys".0,}
 
 \item{chrom}{Chromosome of the variant to correct. e.g. chr1}
 
@@ -50,7 +50,7 @@ design_hdr(
 
 \item{REF}{The original bases on the genome, e.g., "A".}
 
-\item{ALT}{The desired mutated bases, e.g., "G".}
+\item{ALT}{The desired alternate bases, e.g., "G".}
 
 \item{ALT_on_genome}{A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.}
 
@@ -62,14 +62,14 @@ design_hdr(
 
 \item{genome}{A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.}
 
-\item{optimization_scheme}{The optimization scheme for selecting synonymous SNPs. Must be one of:
+\item{optimization_scheme}{The optimization scheme for selecting synonymous SNVs. Must be one of:
 \itemize{
-\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNP quality.
-\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNPs.
+\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNV quality.
+\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNVs.
 \item \code{"disruption_first"}: Prioritizes PAM disruption and guide disruption.
 }}
 
-\item{maximum_mutations_per_template}{The maximum number of synonymous SNPs to introduce per repair template.}
+\item{maximum_variants_per_template}{The maximum number of synonymous SNVs to introduce per repair template.}
 
 \item{filter_to_guide}{Optional. A 20bp character string of a specific guide sequence. If provided, the design process will be restricted to only this guide.}
 
@@ -81,9 +81,9 @@ design_hdr(
 
 \item{seed}{An integer for setting the random seed to ensure reproducibility.}
 
-\item{intron_bp}{Number of intronic bases near splice sites to exclude from synonymous SNPs (default: 6).}
+\item{intron_bp}{Number of intronic bases near splice sites to exclude from synonymous SNVs (default: 6).}
 
-\item{exon_bp}{Number of exonic bases near splice sites to exclude from synonymous SNPs (default: 3).}
+\item{exon_bp}{Number of exonic bases near splice sites to exclude from synonymous SNVs (default: 3).}
 
 \item{snps}{Optional. An object like \code{SNPlocs.Hsapiens.dbSNP155.GRCh38}.}
 

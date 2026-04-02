@@ -13,12 +13,12 @@ augment_var_data_with_scores(
 )
 }
 \arguments{
-\item{var_data}{The main GRanges object of candidate SNPs.}
+\item{var_data}{The main GRanges object of candidate SNVs.}
 
-\item{optimization_scheme}{The optimization scheme for selecting synonymous SNPs. Must be one of:
+\item{optimization_scheme}{The optimization scheme for selecting synonymous SNVs. Must be one of:
 \itemize{
-\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNP quality.
-\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNPs.
+\item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNV quality.
+\item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNVs.
 \item \code{"disruption_first"}: Prioritizes PAM disruption and guide disruption.
 }}
 

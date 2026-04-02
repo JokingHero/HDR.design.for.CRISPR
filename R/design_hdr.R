@@ -4,31 +4,31 @@
 #' using different strategies: finding one optimal template for each guide, finding one optimal
 #' template for all guides, or generating all possible template combinations.
 #'
-#' @param design_name A short name for this set of mutations, e.g., "tyr82cys".0,
+#' @param design_name A short name for this set of variants, e.g., "tyr82cys".0,
 #' @param chrom Chromosome of the variant to correct. e.g. chr1
 #' @param variant_start Position on the chromosome for the variants (its on + strand)
 #' @param variant_end Position ends of the variants on the chromosome
 #' @param REF The original bases on the genome, e.g., "A".
-#' @param ALT The desired mutated bases, e.g., "G".
+#' @param ALT The desired alternate bases, e.g., "G".
 #' @param ALT_on_genome A vector of T/F for each variant. Guides should match your target cell sequences. Select false when targeting wild type.
 #' @param ALT_on_templates A vector of T/F for each variant. This should match your desired outcome. Select true when correcting alt variant.
 #' @param output_dir Path to the directory where output files will be saved.
 #' @param annotation File path to the genome annotation file (GFF3/GTF) or (.db/.sqlite) that can be loaded with `AnnotationDbi::loadDb`.
 #' @param genome A \code{BSgenome} object for your genome, e.g., \code{BSgenome.Hsapiens.UCSC.hg38}.
-#' @param optimization_scheme The optimization scheme for selecting synonymous SNPs. Must be one of:
+#' @param optimization_scheme The optimization scheme for selecting synonymous SNVs. Must be one of:
 #' \itemize{
-#'   \item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNP quality.
-#'   \item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNPs.
+#'   \item \code{"balanced"}: (Default) Balances safety, PAM disruption, and SNV quality.
+#'   \item \code{"safety_first"}: Prioritizes avoiding non-coding overlaps and using known benign SNVs.
 #'   \item \code{"disruption_first"}: Prioritizes PAM disruption and guide disruption.
 #' }
-#' @param maximum_mutations_per_template The maximum number of synonymous SNPs to introduce per repair template.
+#' @param maximum_variants_per_template The maximum number of synonymous SNVs to introduce per repair template.
 #' @param filter_to_guide Optional. A 20bp character string of a specific guide sequence. If provided, the design process will be restricted to only this guide.
 #' @param cut_distance_max Window around the variants to search for cut of the guides (default: 30).
 #' @param template_size Size of the repair template (default: 120).
 #' @param template_hr_arm_size Size of the repair template (default: 30).
 #' @param seed An integer for setting the random seed to ensure reproducibility.
-#' @param intron_bp Number of intronic bases near splice sites to exclude from synonymous SNPs (default: 6).
-#' @param exon_bp Number of exonic bases near splice sites to exclude from synonymous SNPs (default: 3).
+#' @param intron_bp Number of intronic bases near splice sites to exclude from synonymous SNVs (default: 6).
+#' @param exon_bp Number of exonic bases near splice sites to exclude from synonymous SNVs (default: 3).
 #' @param snps Optional. An object like \code{SNPlocs.Hsapiens.dbSNP155.GRCh38}.
 #' @param clinvar Optional. File path to a ClinVar VCF file.
 #' @param cadd Optional. A function to retrieve CADD scores, e.g., `getGScores("cadd.v1.6.hg38")`.
@@ -63,7 +63,7 @@ design_hdr <- function(
     annotation,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
     optimization_scheme = "balanced",
-    maximum_mutations_per_template = 3,
+    maximum_variants_per_template = 3,
     filter_to_guide = "",
     cut_distance_max = 30,
     template_size = 120,
@@ -134,7 +134,7 @@ design_hdr <- function(
     guides <- guides[found_guide]
   }
 
-  message("Preparing candidate synonymous mutations...")
+  message("Preparing candidate synonymous SNVs...")
   # Calculate the net length change from variants destined for the template
   net_length_change <- if (any(ALT_on_templates)) {
     sum(nchar(variants_genomic$ALT[ALT_on_templates])) -
@@ -186,7 +186,7 @@ design_hdr <- function(
   guides$is_disabled_by_default <- is_guide_disabled
 
   if (all(is_guide_disabled) && length(guides) > 0) {
-    message("All guides are sufficiently disrupted by the primary variants. No synonymous SNPs are required.")
+    message("All guides are sufficiently disrupted by the primary variants. No synonymous SNVs are required.")
   }
 
   # Align guides to the new template sequence to find their locations
@@ -200,7 +200,7 @@ design_hdr <- function(
     gapExtension = -1
   )
 
-  # --- Create a detailed map of potential SNP locations linked to specific guides ---
+  # --- Create a detailed map of potential SNV locations linked to specific guides ---
   guides_on_template <- GRanges("target_seq", ranges = ranges(subject(aln)))
   names(guides_on_template) <- rownames(guides)
 
@@ -223,7 +223,7 @@ design_hdr <- function(
     is_plus_strand <- logical(0)
   }
 
-  # --- Protect homology arms from synonymous mutations ---
+  # --- Protect homology arms from synonymous SNVs ---
   active_region_on_template <- IRanges(
     start = template_hr_arm_size + 1,
     end = nchar(preHDR_seq) - template_hr_arm_size
@@ -238,7 +238,7 @@ design_hdr <- function(
   is_plus_strand <- is_plus_strand[is_in_active_region]
 
   if (length(tiled_guides_on_template) == 0) {
-    message("No potential SNP positions available (or needed) within the active template region after excluding homology arms.")
+    message("No potential SNV positions available (or needed) within the active template region after excluding homology arms.")
   }
 
   position_in_guide <- integer(length(tiled_guides_on_template))
@@ -249,7 +249,7 @@ design_hdr <- function(
   tiled_guides_on_template$guide_name <- names(tiled_guides_on_template)
   tiled_guides_on_template$position_in_guide <- position_in_guide
 
-  # Map candidate SNP locations from template coordinates to genomic coordinates
+  # Map candidate SNV locations from template coordinates to genomic coordinates
   template_coord_map <- if (any(ALT_on_templates)) {
     build_variant_layout(variants_in_editw, nchar(source_genomic_seq))
   } else {
@@ -260,7 +260,7 @@ design_hdr <- function(
   }
 
   names(tiled_guides_on_template) <- NULL
-  candidate_snp_map <- remap_target_to_genomic(
+  candidate_snv_map <- remap_target_to_genomic(
     target = tiled_guides_on_template,
     coordinate_map = template_coord_map,
     window_genomic = edit_region,
@@ -268,20 +268,20 @@ design_hdr <- function(
   )
   # This filters SNVs positions that are over potential Variants
   # because that has to be preserved!
-  candidate_snp_map <- candidate_snp_map[
-    !startsWith(candidate_snp_map$coords, "Variant"),
+  candidate_snv_map <- candidate_snv_map[
+    !startsWith(candidate_snv_map$coords, "Variant"),
   ]
 
   variants_genomic_on_ts <- variants_genomic[ALT_on_templates]
-  var_data <- prepare_candidate_snps(
-    candidate_snp_map,
+  var_data <- prepare_candidate_snvs(
+    candidate_snv_map,
     annotation, txdb, genome,
     variants_genomic_on_ts,
     intron_bp, exon_bp, clinvar, snps, cadd,
     alphagenome_key, python_exec, alphagenome_context)
 
   if (length(var_data) == 0) {
-    message("No valid candidate SNPs could be generated for the active guides. Proceeding with 0-SNV templates.")
+    message("No valid candidate SNVs could be generated for the active guides. Proceeding with 0-SNV templates.")
   }
   var_data <- augment_var_data_with_scores(
     var_data, optimization_scheme, benign_cadd_threshold,
@@ -296,24 +296,24 @@ design_hdr <- function(
   for (guide_id in rownames(guides)) {
     message("Working on guide: ", guide_id)
     current_guide <- guides[guide_id, ]
-    guide_snps <- if (length(var_data) > 0) var_data[var_data$guide_name == guide_id] else GRanges()
+    guide_snvs <- if (length(var_data) > 0) var_data[var_data$guide_name == guide_id] else GRanges()
 
     # Cap the design loop to 0 if the guide is already disabled by default
     is_done <- current_guide$is_disabled_by_default
-    max_mpt <- if (is_done) 0 else maximum_mutations_per_template
+    max_mpt <- if (is_done) 0 else maximum_variants_per_template
 
     for (mpt in 0:max_mpt) {
       selected_muts <- GRanges()
       if (mpt > 0) {
         # Select optimal subset of size 'mpt'
-        if (length(guide_snps) > 0) {
-          selected_muts <- find_best_snps_for_guide(
-            guide_snps, mpt, optimization_scheme
+        if (length(guide_snvs) > 0) {
+          selected_muts <- find_best_snvs_for_guide(
+            guide_snvs, mpt, optimization_scheme
           )
           # we can drop extra (NGG_1) in names as its for this specific guide anyway
           names(selected_muts) <- sapply(strsplit(names(selected_muts), " "), `[[`, 1)
         }
-        # If we couldn't find 'mpt' valid non-overlapping mutations, skip this iteration
+        # If we couldn't find 'mpt' valid non-overlapping variants, skip this iteration
         if (length(selected_muts) != mpt) next
       }
 

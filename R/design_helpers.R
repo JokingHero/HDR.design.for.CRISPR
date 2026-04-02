@@ -300,8 +300,8 @@ export_design_results <- function(
     if (is.null(repair_template$seed_disrupted_count)) repair_template$seed_disrupted_count <- 0
     if (is.null(repair_template$total_disruption_count)) repair_template$total_disruption_count <- 0
     if (is.null(repair_template$total_cadd)) repair_template$total_cadd <- 999
-    # Assumption: total_snp_quality_score is the sum/max of safety tiers (Lower is Better)
-    if (is.null(repair_template$total_snp_quality_score)) repair_template$total_snp_quality_score <- 999
+    # Assumption: total_snv_quality_score is the sum/max of safety tiers (Lower is Better)
+    if (is.null(repair_template$total_snv_quality_score)) repair_template$total_snv_quality_score <- 999
     if (is.null(repair_template$is_ag_risky)) repair_template$is_ag_risky <- FALSE
     repair_template$n_snvs <- lengths(strsplit(repair_template$snvs_introduced, ";"))
 
@@ -344,7 +344,7 @@ export_design_results <- function(
       "balanced" = order(
         repair_template$any_overlaps_noncoding,    # Hard Safety Constraint
         repair_template$disruption_bin,            # Primary: Efficacy Confidence
-        repair_template$total_snp_quality_score,   # Secondary: Safety
+        repair_template$total_snv_quality_score,   # Secondary: Safety
         repair_template$n_snvs,                    # Tertiary: Parsimony
         repair_template$is_ag_risky                # Tie-breaker
       ),
@@ -362,7 +362,7 @@ export_design_results <- function(
       # Logic: Safety is King. Only consider disruption if safety scores are identical.
       "safety_first" = order(
         repair_template$any_overlaps_noncoding,
-        repair_template$total_snp_quality_score,
+        repair_template$total_snv_quality_score,
         repair_template$disruption_bin,
         repair_template$n_snvs
       ),
@@ -388,7 +388,7 @@ export_design_results <- function(
       "any_overlaps_noncoding",
       "total_cadd",
       "is_ag_risky",
-      "total_snp_quality_score",
+      "total_snv_quality_score",
       "sequence"
     )
 

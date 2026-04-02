@@ -24,7 +24,7 @@ design_dual_cas13a(
 
 \item{guide_length}{Normally 28}
 
-\item{allowed_positions}{3:5, where we want guide to have mutation}
+\item{allowed_positions}{3:5, where we want guide to have variant}
 
 \item{t7_promoter}{"GAAATTAATACGACTCACTATAGGG" we attach this to left primer}
 

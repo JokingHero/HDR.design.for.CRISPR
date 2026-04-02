@@ -6,15 +6,15 @@ txdb <- suppressMessages(
   suppressWarnings(txdbmaker::makeTxDbFromGFF(annot, format = "gff3"))
 )
 
-test_that("get_all_possible_mutations", {
+test_that("get_all_possible_variants", {
   dummy_genome <- DNAStringSet(c(chr1 = "AGCTGTCA", chr2 = "TTGCA"))
   names(dummy_genome) <- c("chr1", "chr2")
   positions <- GRanges(c("chr1:3:+", "chr2:3:+")) # REF bases are 'C' and 'G'
 
-  result <- get_all_possible_mutations(positions, dummy_genome)
+  result <- get_all_possible_variants(positions, dummy_genome)
 
   expect_s4_class(result, "GRanges")
-  expect_equal(length(result), 6) # 2 positions * 3 mutations each
+  expect_equal(length(result), 6) # 2 positions * 3 variants each
   expect_true(all(c("REF", "ALT") %in% names(mcols(result))))
   expect_equal(result$REF, rep(c("C", "G"), each = 3))
   expect_equal(result$ALT, c("A", "T", "G", "A", "C", "T"))
@@ -28,7 +28,7 @@ test_that("annotate_variants_with_cds", {
   seqlevelsStyle(txdb) <- seqlevelsStyle(genome)
 
   # plus-strand gene (CTNNB1)
-  # This variant is a missense mutation in the CTNNB1 gene on the '+' strand.
+  # This variant is a missense variant in the CTNNB1 gene on the '+' strand.
   variant_plus <- GRanges("chr3:41224529:+", REF = "A", ALT = "C")
   names(variant_plus) <- "CTNNB1_missense"
   # Pass empty GRanges for variants_genomic_on_ts since we're testing without background variants
@@ -111,7 +111,7 @@ test_that("is_outside_splice_sites", {
   expect_true(is_outside_splice_sites(variant_off_border, txdb, 10, 5))
 })
 
-test_that("annotate_variants_with_snps", {
+test_that("annotate_variants_with_dbsnp", {
   our_variants <- GRanges(
     seqnames = c("chr1", "chr1", "chr1", "chr1", "chr2", "chr1"),
     ranges = IRanges(start = c(100, 200, 300, 400, 100, 500), width = 1),
@@ -132,7 +132,7 @@ test_that("annotate_variants_with_snps", {
     alleles_as_ambig = c("M", "Y", "R", "S", "G", NA)
   )
 
-  results <- annotate_variants_with_snps(our_variants, known_snps)
+  results <- annotate_variants_with_dbsnp(our_variants, known_snps)
   expect_s4_class(results, "DataFrameList")
   expect_equal(length(results), length(our_variants))
   expect_equal(names(results), names(our_variants))
@@ -171,12 +171,12 @@ test_that("annotate_variants_with_snps", {
   expect_false(res6$is_known_variant)
 
   empty_variants <- our_variants[0, ]
-  results_empty_var <- annotate_variants_with_snps(empty_variants, known_snps)
+  results_empty_var <- annotate_variants_with_dbsnp(empty_variants, known_snps)
   expect_s4_class(results_empty_var, "DataFrameList")
   expect_equal(length(results_empty_var), 0)
 
   empty_snps <- known_snps[0, ]
-  results_empty_snp <- annotate_variants_with_snps(our_variants, empty_snps)
+  results_empty_snp <- annotate_variants_with_dbsnp(our_variants, empty_snps)
   expect_s4_class(results_empty_snp, "DataFrameList")
   expect_equal(length(results_empty_snp), length(our_variants))
   # Check that every resulting DataFrame is empty

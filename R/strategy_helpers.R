@@ -1,11 +1,11 @@
-#' Selects mutations that are non-overlapping at both the genomic and codon level.
+#' Selects variants that are non-overlapping at both the genomic and codon level.
 #'
-#' @param gr A GRanges object of candidate mutations, assumed to be pre-sorted by priority.
-#' @param N The maximum number of mutations to select.
-#' @return A GRanges object containing the top N non-overlapping mutations.
+#' @param gr A GRanges object of candidate variants, assumed to be pre-sorted by priority.
+#' @param N The maximum number of variants to select.
+#' @return A GRanges object containing the top N non-overlapping variants.
 #' @keywords internal
 #'
-select_non_overlapping_mutations <- function(gr, N) {
+select_non_overlapping_variants <- function(gr, N) {
   if (length(gr) == 0) {
     return(gr[0])
   }
@@ -49,7 +49,7 @@ select_non_overlapping_mutations <- function(gr, N) {
 #' @description Pre-calculates standardized metrics on the var_data GRanges to
 #'   facilitate downstream sorting. Handles missing data (e.g., non-model organisms)
 #'   by imputing neutral defaults.
-#' @param var_data The main GRanges object of candidate SNPs.
+#' @param var_data The main GRanges object of candidate SNVs.
 #' @inheritParams design_hdr
 #' @return The augmented var_data GRanges object with standardized columns:
 #'   `penalty_score`, `disruption_tier`, `safety_tier`, etc.
@@ -182,46 +182,46 @@ augment_var_data_with_scores <- function(var_data,
   return(var_data)
 }
 
-#' @title Find the best set of SNPs for a single guide
-#' @description Sorts candidate SNPs based on a chosen scheme and greedily
+#' @title Find the best set of SNVs for a single guide
+#' @description Sorts candidate SNVs based on a chosen scheme and greedily
 #'   selects the top N non-overlapping ones.
-#' @return A GRanges object of the selected mutations.
+#' @return A GRanges object of the selected variants.
 #' @keywords internal
 #'
-find_best_snps_for_guide <- function(guide_snps, N, optimization_scheme) {
-  if (length(guide_snps) == 0) return(GRanges())
-  ag_risk <- if ("is_ag_risky" %in% names(mcols(guide_snps))) {
-    guide_snps$is_ag_risky
+find_best_snvs_for_guide <- function(guide_snvs, N, optimization_scheme) {
+  if (length(guide_snvs) == 0) return(GRanges())
+  ag_risk <- if ("is_ag_risky" %in% names(mcols(guide_snvs))) {
+    guide_snvs$is_ag_risky
   } else {
-    rep(FALSE, length(guide_snps))
+    rep(FALSE, length(guide_snvs))
   }
 
   ordering <- switch(
     optimization_scheme,
     "balanced" = order(
-      guide_snps$priority_group,
-      guide_snps$disruption_tier,
-      guide_snps$cadd_imputed,
+      guide_snvs$priority_group,
+      guide_snvs$disruption_tier,
+      guide_snvs$cadd_imputed,
       ag_risk,
-      -guide_snps$position_in_guide
+      -guide_snvs$position_in_guide
     ),
     "disruption_first" = order(
-      guide_snps$priority_group,
-      guide_snps$safety_tier,
-      guide_snps$cadd_imputed,
+      guide_snvs$priority_group,
+      guide_snvs$safety_tier,
+      guide_snvs$cadd_imputed,
       ag_risk
     ),
     "safety_first" = order(
-      guide_snps$priority_group,
-      guide_snps$disruption_tier,
+      guide_snvs$priority_group,
+      guide_snvs$disruption_tier,
       ag_risk,
-      -guide_snps$position_in_guide
+      -guide_snvs$position_in_guide
     ),
     stop("Invalid optimization_scheme")
   )
 
-  sorted_snps <- guide_snps[ordering]
-  select_non_overlapping_mutations(sorted_snps, N)
+  sorted_snvs <- guide_snvs[ordering]
+  select_non_overlapping_variants(sorted_snvs, N)
 }
 
 #' @title Assess Guide Disruption on Final Template
@@ -265,8 +265,8 @@ assess_guide_disruption <- function(guide, template_seq) {
   )
 }
 
-#' @title Create HDR template and probes from a set of mutations
-#' @description Injects selected SNPs into the base template sequence, calculates
+#' @title Create HDR template and probes from a set of variants
+#' @description Injects selected SNVs into the base template sequence, calculates
 #'   summary statistics based on re-alignment, and designs validation probes.
 #' @return A list containing the 'template' and 'probes' GRanges.
 #' @keywords internal
@@ -290,11 +290,11 @@ create_template_and_probes <- function(selected_muts,
   any_overlaps_nc <- FALSE
 
   if (length(selected_muts) > 0) {
-    # Map selected SNPs to edit window
+    # Map selected SNVs to edit window
     muts_in_editw <- pmapToTranscripts(selected_muts, edit_region)
     muts_in_editw$ALT <- selected_muts$ALT
 
-    # Combine introduced SNPs with original template variants for injection
+    # Combine introduced SNVs with original template variants for injection
     muts_to_inject <- sort(c(variants_in_editw, muts_in_editw))
 
     # Stats
@@ -310,7 +310,7 @@ create_template_and_probes <- function(selected_muts,
     }
   }
 
-  # Inject all mutations to create the final HDR sequence
+  # Inject all variants to create the final HDR sequence
   final_hdr_seq <- if (length(muts_to_inject) > 0) {
     replaceAt(source_genomic_seq,
               at = ranges(muts_to_inject),
@@ -344,7 +344,7 @@ create_template_and_probes <- function(selected_muts,
   template_gr$total_cadd <- total_cadd
   template_gr$is_ag_risky <- is_ag_risky
   template_gr$any_overlaps_noncoding <- any_overlaps_nc
-  template_gr$total_snp_quality_score <- total_snp_quality
+  template_gr$total_snv_quality_score <- total_snp_quality
   template_gr$unsafe_snv_count <- unsafe_snv_count
 
   # --- 5. Design Probes if requested ---

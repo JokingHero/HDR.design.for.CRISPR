@@ -16,10 +16,10 @@
 #' @return A `GRanges` object with `length(search_positions) * 3` rows (assuming
 #'   the default 4-base alphabet). It includes metadata columns:
 #'   \item{REF}{The reference allele at the given position.}
-#'   \item{ALT}{The alternate (mutant) allele.}
+#'   \item{ALT}{The alternate allele.}
 #' @keywords internal
 #'
-get_all_possible_mutations <- function(search_positions, genome,
+get_all_possible_variants <- function(search_positions, genome,
                                        alphabet = c("A", "C", "T", "G")) {
   # because we are treating our variants as in VCF file, we
   # are on plus strand
@@ -135,13 +135,13 @@ analyze_transcript_integrity <- function(
   return(analysis_list)
 }
 
-#' Map coordinates from an original sequence to a mutated sequence
+#' Map coordinates from an original sequence to a modified sequence
 #'
 #' @param original_positions A numeric vector of positions on the original sequence.
 #' @param coordinate_map A data frame created by the new logic, with columns
 #'   'original_pos' and 'cumulative_diff'.
-#' @return A numeric vector of corresponding positions on the mutated sequence.
-map_original_to_mutated_coords <- function(original_positions, coordinate_map) {
+#' @return A numeric vector of corresponding positions on the modified sequence.
+map_original_to_modified_coords <- function(original_positions, coordinate_map) {
   # If there are no indels, the coordinates don't change.
   if (nrow(coordinate_map) == 0) {
     return(original_positions)
@@ -156,9 +156,9 @@ map_original_to_mutated_coords <- function(original_positions, coordinate_map) {
   shifts <- ifelse(indices == 0, 0, coordinate_map$cumulative_diff[indices])
 
   # The new position is the original position plus the total shift from all preceding indels.
-  mutated_positions <- original_positions + shifts
+  modified_positions <- original_positions + shifts
 
-  return(mutated_positions)
+  return(modified_positions)
 }
 
 # Helper function to extract codons safely (from your old function)
@@ -268,7 +268,7 @@ annotate_variants_with_cds <- function(
         # The transcript has a new sequence due to background variants.
         final_seq <- info$mutated_seq
         # Map the SNV's position to the new, potentially shifted, coordinate system.
-        pos_on_final_seq <- map_original_to_mutated_coords(pos_on_original_cds, info$coord_map)
+        pos_on_final_seq <- map_original_to_modified_coords(pos_on_original_cds, info$coord_map)
 
         if (info$state == "PTC introduced") {
           # The background variants introduced a Premature Termination Codon.
@@ -383,10 +383,10 @@ is_outside_cds_boundaries <- function(all_variants, txdb, buffer_bp = 3) {
 }
 
 
-#' Check if our variants are knoww synonymous variants
+#' Annotate variants with dbSNP data
 #' @keywords internal
 #'
-annotate_variants_with_snps <- function(all_variants, snps, alt_allele_col = "ALT") {
+annotate_variants_with_dbsnp <- function(all_variants, snps, alt_allele_col = "ALT") {
   var <- all_variants
   strand(var) <- "*"
   GenomeInfoDb::seqlevelsStyle(var) <- GenomeInfoDb::seqlevelsStyle(snps)[1]
@@ -480,7 +480,7 @@ annotate_variants_with_cadd <- function(all_variants, cadd) {
 #' @importFrom rlang .data
 #' @keywords internal
 #'
-annotate_mutations_with_alphagenome <- function(all_variants,
+annotate_variants_with_alphagenome <- function(all_variants,
                                                 alphagenome_key,
                                                 species,
                                                 python_exec = "python3",
@@ -620,12 +620,12 @@ annotate_mutations_with_alphagenome <- function(all_variants,
   return(out)
 }
 
-#' Prepare Candidate Synonymous Mutations
-#' @description Generates, filters, and annotates all possible synonymous SNPs.
+#' Prepare Candidate Synonymous Variants
+#' @description Generates, filters, and annotates all possible synonymous SNVs.
 #' @inheritParams design_hdr
 #' @keywords internal
-prepare_candidate_snps <- function(
-    candidate_snp_map,
+prepare_candidate_snvs <- function(
+    candidate_snv_map,
     annotation, txdb, genome,
     variants_genomic_on_ts,
     intron_bp, exon_bp, clinvar, snps, cadd,
@@ -633,20 +633,20 @@ prepare_candidate_snps <- function(
 
   # some variants might be indels - complicates codon assesments!
   is_indel <- nchar(variants_genomic_on_ts$REF) != nchar(variants_genomic_on_ts$ALT)
-  search_positions <- GRanges(candidate_snp_map$coords)
+  search_positions <- GRanges(candidate_snv_map$coords)
   search_positions <- sort(unique(search_positions))
-  # remove indel variant positions - but this is already done trough the candidate_snp_map
+  # remove indel variant positions - but this is already done through the candidate_snv_map
   search_positions <- search_positions[
     !(search_positions %over% variants_genomic_on_ts[!is_indel])]
   mcols(search_positions) <- NULL
-  # special case where there is nothing to design in terms of SNPs
+  # special case where there is nothing to design in terms of SNVs
   # all guides are knocked out with its own variant?
   if (length(search_positions) == 0) {
-    message("No valid positions found for introducing synonymous mutations.")
+    message("No valid positions found for introducing synonymous SNVs.")
     return(GRanges())
   }
   # Generate all possible 3 SNVs for each unique position.
-  all_variants <- get_all_possible_mutations(search_positions, genome)
+  all_variants <- get_all_possible_variants(search_positions, genome)
 
   # filter out too close to the splice sites
   is_outside <- is_outside_splice_sites(all_variants, txdb, intron_bp, exon_bp)
@@ -693,7 +693,7 @@ prepare_candidate_snps <- function(
     # Case 2: For coding variants, ALL its effects across all transcripts
     # must be benign.
     all(
-      # Condition A: It's a synonymous mutation.
+      # Condition A: It's a synonymous variant.
       # This will also catch NA == NA as OK
       (df$aa_ref == df$aa_alt) |
         # Condition B: Its effect is moot due to a compromised transcript.
@@ -708,7 +708,7 @@ prepare_candidate_snps <- function(
   # 2. No genetic variant - NA
   # 3. Genetic variant non-compliant - false
   if (!is.null(snps)) {
-    all_variants$dbSNP <- annotate_variants_with_snps(all_variants, snps)
+    all_variants$dbSNP <- annotate_variants_with_dbsnp(all_variants, snps)
   }
   all_variants$noncoding <- annotate_variants_with_noncoding(all_variants, annotation)
   if (!is.null(cadd)) {
@@ -722,7 +722,7 @@ prepare_candidate_snps <- function(
       "mouse"
     } else NA
     if (!is.na(species)) {
-      ag_dt <- annotate_mutations_with_alphagenome(
+      ag_dt <- annotate_variants_with_alphagenome(
         all_variants, alphagenome_key, species, python_exec,
         alphagenome_context)
       mcols(all_variants) <- cbind(mcols(all_variants), ag_dt)
@@ -730,35 +730,35 @@ prepare_candidate_snps <- function(
   }
 
   # Join annotated variants back to the guide map.
-  # This step links each valid, annotated SNP with the specific guide(s)
+  # This step links each valid, annotated SNV with the specific guide(s)
   # it can disrupt.
   # We use `type = "equal"` to be precise about matching single-base locations.
-  hits <- findOverlaps(all_variants, GRanges(candidate_snp_map$coords), type = "equal")
+  hits <- findOverlaps(all_variants, GRanges(candidate_snv_map$coords), type = "equal")
   if (length(hits) == 0) {
-    # This could happen if, for example, all potential SNPs were filtered out
+    # This could happen if, for example, all potential SNVs were filtered out
     return(GRanges())
   }
 
   # Construct the final data object.
-  final_snps <- all_variants[S4Vectors::queryHits(hits)]
-  final_snps$guide_name <- candidate_snp_map$guide_name[
+  final_snvs <- all_variants[S4Vectors::queryHits(hits)]
+  final_snvs$guide_name <- candidate_snv_map$guide_name[
     S4Vectors::subjectHits(hits)]
-  final_snps$position_in_guide <- candidate_snp_map$position_in_guide[
+  final_snvs$position_in_guide <- candidate_snv_map$position_in_guide[
     S4Vectors::subjectHits(hits)]
-  names(final_snps) <- paste0(seqnames(final_snps), ":", start(final_snps), ":",
-                              final_snps$REF, ">", final_snps$ALT,
-                              " (for ", final_snps$guide_name, ")")
+  names(final_snvs) <- paste0(seqnames(final_snvs), ":", start(final_snvs), ":",
+                              final_snvs$REF, ">", final_snvs$ALT,
+                              " (for ", final_snvs$guide_name, ")")
 
-  all_statuses <- unlist(sapply(final_snps$CDS, `[[`, "status"))
+  all_statuses <- unlist(sapply(final_snvs$CDS, `[[`, "status"))
   if (any(benign_if_moot_statuses %in% all_statuses)) {
     message(
       "NOTE: Your template includes indels that affect coding sequences. ",
-      "Candidate SNPs have been generated in these regions and their predicted effects ",
+      "Candidate SNVs have been generated in these regions and their predicted effects ",
       "are noted in the 'CDS' annotation column with statuses like 'frameshifted', ",
       "'downstream_of_ptc'. Please review these ",
       "candidates carefully, as standard synonymous criteria may not apply and ",
       "splicing may be affected."
     )
   }
-  return(final_snps)
+  return(final_snvs)
 }

@@ -36,24 +36,24 @@ test_that("comb_along", {
     sort(comb_along("NN", m = 3, letters = c("A"))))
 })
 
-test_that("get_genomic_mutation", {
+test_that("get_genomic_variant", {
   cds_test <- GRangesList(list("plus" = GRanges(seqnames = "chr",
                                                 ranges = IRanges(100, 200),
                                                 strand = "+")))
   expect_equal(
-    start(get_genomic_mutation(cds_test, 1)),
+    start(get_genomic_variant(cds_test, 1)),
     start(cds_test[[1]]))
   expect_equal(
-    start(get_genomic_mutation(cds_test, 101)),
+    start(get_genomic_variant(cds_test, 101)),
     end(cds_test[[1]]))
 
   cds_test <- GRangesList(list("minus" = GRanges(seqnames = "chr",
                                                  ranges = IRanges(c(300, 100), c(400, 200)),
                                                  strand = "-")))
   expect_equal(
-    start(get_genomic_mutation(cds_test, 1)),
+    start(get_genomic_variant(cds_test, 1)),
     end(cds_test[[1]][1]))
   expect_equal(
-    start(get_genomic_mutation(cds_test, 202)),
+    start(get_genomic_variant(cds_test, 202)),
     start(cds_test[[1]][2]))
 })

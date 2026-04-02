@@ -11,7 +11,7 @@ test_that("End-to-end test for STAT3 (minus strand)", {
   output_dir <- tempfile(pattern = "STAT3_minus_strand_test_")
   dir.create(output_dir)
 
-  # Using a known transcript and mutation for STAT3
+  # Using a known transcript and variant for STAT3
   design_hdr(
     design_name = "STAT3",
     optimization_scheme = "balanced",
@@ -26,7 +26,7 @@ test_that("End-to-end test for STAT3 (minus strand)", {
     output_dir = output_dir,
     annotation = annot,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-    maximum_mutations_per_template = 3,
+    maximum_variants_per_template = 3,
     snps = SNPlocs.Hsapiens.dbSNP155.GRCh38::SNPlocs.Hsapiens.dbSNP155.GRCh38,
     cadd = GenomicScores::getGScores("cadd.v1.6.hg38")
   )
@@ -78,7 +78,7 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
   unlink(output_dir, recursive = TRUE)
   dir.create(output_dir)
 
-  # Using a known transcript and mutation for CTNNB1
+  # Using a known transcript and variant for CTNNB1
   # The gencode.v42.annotation_mini.gff3 file confirms that CTNNB1 is on the plus strand.
   design_hdr(
     design_name = "CTNNB1",
@@ -92,7 +92,7 @@ test_that("End-to-end test for CTNNB1 (plus strand)", {
     output_dir = output_dir,
     annotation = annot,
     genome = BSgenome.Hsapiens.UCSC.hg38::BSgenome.Hsapiens.UCSC.hg38,
-    maximum_mutations_per_template = 3,
+    maximum_variants_per_template = 3,
     snps = SNPlocs.Hsapiens.dbSNP155.GRCh38::SNPlocs.Hsapiens.dbSNP155.GRCh38,
     cadd = GenomicScores::getGScores("cadd.v1.6.hg38")
   )

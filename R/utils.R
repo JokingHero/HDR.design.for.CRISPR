@@ -12,10 +12,10 @@ translate_robust <- function(dna_string) {
 }
 
 
-# locus_name = mutation_name
+# locus_name = variant_name
 # gseq = genomic_seq[[1]]
 # organism_name = organism(genome)
-# output_file = file.path(output_dir, paste0(mutation_name, "_cds.gbk"))
+# output_file = file.path(output_dir, paste0(variant_name, "_cds.gbk"))
 # definition = "."
 # accession = "."
 # version = "."
@@ -230,7 +230,7 @@ get_frame <- function(exon_widths) {
   c(0, cumsum(exon_widths) %% 3)[1:length(exon_widths)]
 }
 
-#' Flip IRanges around a central mutation point.
+#' Flip IRanges around a central variant point.
 #'
 #' @param ranges An IRanges object containing the ranges to be flipped, ranges in `sense`
 #' @param extension An integer defining the "half-length" of the genomic_seq.
@@ -265,21 +265,21 @@ get_cds <- function(txdb, ensemble_transcript_id) {
   cds
 }
 
-get_genomic_mutation <- function(cds, mutation_loci) {
+get_genomic_variant <- function(cds, variant_loci) {
   mut_genomic <- GenomicFeatures::pmapFromTranscripts(
-    IRanges(mutation_loci, width = 1), cds)
+    IRanges(variant_loci, width = 1), cds)
   mut_genomic <- mut_genomic[[1]][mut_genomic[[1]]$hit]
   mut_genomic
 }
 
 
-# From `mutations` we need to select n groups of `mutations_per_template` mutations
+# From `variants` we need to select n groups of `variants_per_template` variants
 # that can be unique to each template.
 # Each codon can't be reused in this calculation.
-get_combinations_of_mutations <- function(mutations, n, mutations_per_template) {
+get_combinations_of_variants <- function(variants, n, variants_per_template) {
   tc <- n
-  available_muts <- seq_along(mutations)
-  selected_combs <- matrix(nrow = tc, ncol = mutations_per_template)
+  available_muts <- seq_along(variants)
+  selected_combs <- matrix(nrow = tc, ncol = variants_per_template)
   i <- 0
   # we just randomize
   stop_counter <- 100000
@@ -287,12 +287,12 @@ get_combinations_of_mutations <- function(mutations, n, mutations_per_template) 
   while (i < tc) {
     i <- i + 1
     stop_counter_i <- stop_counter_i + 1
-    available_muts <- seq_along(mutations)
-    mut123 <- sample(available_muts, size = mutations_per_template, replace = F)
+    available_muts <- seq_along(variants)
+    mut123 <- sample(available_muts, size = variants_per_template, replace = F)
     mut123 <- sort(mut123)
-    # mutations can't also be using the same codon more than 1 time
-    # mutations can't repeat
-    if ((length(unique(mutations[mut123]$codon)) != mutations_per_template) |
+    # variants can't also be using the same codon more than 1 time
+    # variants can't repeat
+    if ((length(unique(variants[mut123]$codon)) != variants_per_template) |
         (any(apply(selected_combs, 1, function(x) all(x == mut123)), na.rm = T))) {
       i <- i - 1 # this randomization failed, try again
     } else {
@@ -451,19 +451,19 @@ select_probes <- function(muts_to_cover, candidates, temp_name) {
     return(data.frame())
   }
 
-  # Keep track of mutations and candidates that are still in play
+  # Keep track of variants and candidates that are still in play
   muts_remaining <- muts_to_cover
   candidates_remaining <- candidates
   selected_probes_list <- list()
 
   # --- Greedy Selection Loop ---
   while (length(muts_remaining) > 0) {
-    # Get the names of mutations we still need to cover
+    # Get the names of variants we still need to cover
     mut_names <- names(muts_remaining)
 
     # 1. Calculate overlaps using string matching
-    # For each candidate probe, count how many remaining mutations it covers.
-    # We create a matrix where rows are probes, columns are mutations,
+    # For each candidate probe, count how many remaining variants it covers.
+    # We create a matrix where rows are probes, columns are variants,
     # and values are TRUE/FALSE for coverage. Then, we sum by row.
     # 'fixed = TRUE' makes grepl faster as it does simple string matching.
     overlap_matrix <- sapply(
@@ -475,32 +475,32 @@ select_probes <- function(muts_to_cover, candidates, temp_name) {
     }
     overlap_counts <- rowSums(overlap_matrix)
 
-    # Check if any remaining probe can cover any remaining mutation
+    # Check if any remaining probe can cover any remaining variant
     if (max(overlap_counts) == 0) {
-      warning("Could not design probes for all mutations for ", temp_name,
-              ". Uncovered mutations: ", toString(names(muts_remaining)))
+      warning("Could not design probes for all variants for ", temp_name,
+              ". Uncovered variants: ", toString(names(muts_remaining)))
       break # Exit the loop, will return probes found so far
     }
 
     # 2. Find the best probe
-    # Order by the number of mutations covered (desc), then by GC content (desc)
+    # Order by the number of variants covered (desc), then by GC content (desc)
     best_probe_idx <- order(overlap_counts, candidates_remaining$GC, decreasing = TRUE)[1]
 
     # 3. Add the best probe to our results
     best_probe <- candidates_remaining[best_probe_idx, ]
     selected_probes_list[[length(selected_probes_list) + 1]] <- best_probe
 
-    # 4. Update the set of remaining mutations
-    # Find which mutations were covered by the selected probe
+    # 4. Update the set of remaining variants
+    # Find which variants were covered by the selected probe
     # We can reuse the overlap_matrix row for the best probe
     covered_muts_mask <- overlap_matrix[best_probe_idx, ]
     muts_remaining <- muts_remaining[!covered_muts_mask]
     candidates_remaining <- candidates_remaining[-best_probe_idx, ]
 
-    # Safety break: if candidates run out but mutations remain
+    # Safety break: if candidates run out but variants remain
     if (nrow(candidates_remaining) == 0 && length(muts_remaining) > 0) {
       warning("Ran out of candidate probes for ", temp_name,
-              ". Uncovered mutations: ", toString(names(muts_remaining)))
+              ". Uncovered variants: ", toString(names(muts_remaining)))
       break
     }
   }

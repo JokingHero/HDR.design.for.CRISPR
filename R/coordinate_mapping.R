@@ -1,10 +1,10 @@
-#' Create a set of variants that can reverse a mutation injection process.
+#' Create a set of variants that can reverse a variant injection process.
 #'
 #' @param variants A GRanges object of the original variants. Must contain
 #'   'REF' and 'ALT' metadata columns. Object has to have names.
 #' @return A GRanges object representing the reverse variants. The ranges are in
-#'   the coordinate system of the *mutated* sequence. The 'ALT' metadata column
-#'   contains the sequence needed to revert the mutation (i.e., the original 'REF').
+#'   the coordinate system of the *modified* sequence. The 'ALT' metadata column
+#'   contains the sequence needed to revert the variant (i.e., the original 'REF').
 #' @import GenomicRanges
 #' @import IRanges
 #' @importFrom S4Vectors mcols

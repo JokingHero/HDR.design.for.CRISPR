@@ -3,7 +3,7 @@
 export(design_dual_cas13a)
 export(design_hdr)
 export(get_genomic_seq)
-export(synonymously_mutate_cds)
+export(synonymously_diversify_cds)
 import(BSgenome)
 import(BSgenome.Hsapiens.UCSC.hg38)
 import(Biostrings)
