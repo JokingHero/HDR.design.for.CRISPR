@@ -421,25 +421,11 @@ score_templates_with_mfh <- function(repair_template, guides, python_exec) {
     return(na_result)
   }
 
-  # Guard: check predict.py exists
-  predict_script <- system.file("exec", "CRISPR-MFH", "predict.py",
-                                package = "HDRdesignForCRISPR", mustWork = FALSE)
-  if (predict_script == "") {
-    # Fallback: try relative to package source directory
-    predict_script <- file.path(
-      system.file(package = "HDRdesignForCRISPR"),
-      "..", "exec", "CRISPR-MFH", "predict.py")
-    if (!file.exists(predict_script)) {
-      # Last resort: try from the package root directly
-      pkg_root <- find.package("HDRdesignForCRISPR", quiet = TRUE)
-      if (length(pkg_root) > 0) {
-        predict_script <- file.path(pkg_root, "exec", "CRISPR-MFH", "predict.py")
-      }
-    }
-  }
-
-  if (!file.exists(predict_script)) {
-    warning("CRISPR-MFH: predict.py not found. Skipping MFH scoring.")
+  # Guard: check predict_crispr_mfh.py exists
+  predict_script <- system.file("exec", "predict_crispr_mfh.py",
+                                package = "HDR.design.for.CRISPR", mustWork = FALSE)
+  if (predict_script == "" || !file.exists(predict_script)) {
+    warning("CRISPR-MFH: predict_crispr_mfh.py not found. Skipping MFH scoring.")
     return(na_result)
   }
 
@@ -475,7 +461,7 @@ score_templates_with_mfh <- function(repair_template, guides, python_exec) {
   # Combine: baselines first, then templates
   combined_df <- rbind(baseline_df, template_df)
 
-  # Write combined CSV and run predict.py once
+  # Write combined CSV and run predict_crispr_mfh.py once
   input_csv <- tempfile(fileext = ".csv")
   output_csv <- tempfile(fileext = ".csv")
   on.exit(unlink(c(input_csv, output_csv)), add = TRUE)
@@ -490,13 +476,13 @@ score_templates_with_mfh <- function(repair_template, guides, python_exec) {
       stdout = TRUE, stderr = TRUE
     )
   }, error = function(e) {
-    warning("CRISPR-MFH: Failed to run predict.py: ", e$message)
+    warning("CRISPR-MFH: Failed to run predict_crispr_mfh.py: ", e$message)
     return(NULL)
   })
 
   exit_code <- attr(result, "status")
   if (!is.null(exit_code) && exit_code != 0) {
-    warning("CRISPR-MFH: predict.py exited with code ", exit_code,
+    warning("CRISPR-MFH: predict_crispr_mfh.py exited with code ", exit_code,
             ". stderr:\n", paste(result, collapse = "\n"))
     return(na_result)
   }

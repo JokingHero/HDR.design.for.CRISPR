@@ -33,7 +33,7 @@ import tensorflow as tf
 # ─── Constants ───────────────────────────────────────────────────────────────
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_MODEL_PATH = os.path.join(SCRIPT_DIR, 'model')
+DEFAULT_MODEL_PATH = os.path.join(SCRIPT_DIR, 'CRISPR-MFH')
 TLEN = 24  # Model expects 24-length sequences
 GUIDE_PAM = 'NGG'  # Appended to guide alignment (offtarget mode only)
 OFFTARGET_PAM = 'AGG'  # Appended to off-target alignment (offtarget mode only)
@@ -116,37 +116,14 @@ def reverse_complement(seq):
     return seq.translate(COMPLEMENT)[::-1]
 
 
-# ─── Bulge Trimming ─────────────────────────────────────────────────────────
-
-def trim_to_max_one_bulge(guide_aln, ref_aln):
-    """
-    Trim positions from the 3' end (right side) of both aligned sequences
-    until at most 1 gap character ('-') remains across both sequences combined.
-
-    CHOPOFF allows up to 3 bulges, but CRISPR-MFH only supports 1.
-    This is called BEFORE PAM appending.
-    """
-    while (guide_aln.count('-') + ref_aln.count('-')) > 1:
-        if len(guide_aln) <= 1:
-            break
-        guide_aln = guide_aln[:-1]
-        ref_aln = ref_aln[:-1]
-    return guide_aln, ref_aln
-
-
 # ─── Preprocessing ───────────────────────────────────────────────────────────
 
 def prepare_pair(guide_aln, ref_aln):
     """
     Prepare a guide/off-target alignment pair for MFH model input:
-    1. Trim to max 1 bulge (if needed)
-    2. Append PAM sequences
+    1. Append PAM sequences
+    2. MFH_encoding handles 5' truncation to TLEN, anchored at PAM (3' end)
     """
-    total_gaps = guide_aln.count('-') + ref_aln.count('-')
-    if total_gaps > 1:
-        guide_aln, ref_aln = trim_to_max_one_bulge(guide_aln, ref_aln)
-
-    # Append PAM
     guide_with_pam = guide_aln + GUIDE_PAM
     ref_with_pam = ref_aln + OFFTARGET_PAM
 
