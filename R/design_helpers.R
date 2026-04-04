@@ -360,7 +360,7 @@ export_design_results <- function(
     repair_template$disruption_bin <- pmin(5L, base_disruption_bin + unsafe_penalty)
 
     # --- HIERARCHICAL SORTING ---
-    # Use relative_crispr_mfh for tiebreaking across all schemes
+    # Use relative_crispr_mfh for tiebreaking (used primarily in disruption_first)
     mfh_sort <- repair_template$relative_crispr_mfh
     mfh_sort[is.na(mfh_sort)] <- Inf # NA sorts last in ascending
 

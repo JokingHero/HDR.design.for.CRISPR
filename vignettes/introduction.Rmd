@@ -40,8 +40,9 @@ Primary knobs that change ranking behavior:
 1. Normalize input variants.
 2. Discover candidate guides on a variant-centered sequence.
 3. Optionally score guides with multiple efficiency models and aggregate ranks.
-4. Build candidate SNV positions from guide footprints on template sequence.
-5. Generate all possible SNVs at those positions and filter invalid/risky loci.
+4. Assess guides for "auto-deactivation" by primary variants (>= 3 mismatches or PAM + 2 total).
+5. Build candidate SNV positions for remaining active guides only.
+6. Generate all possible SNVs at those positions and filter invalid/risky loci.
 6. Compute SNV scoring features and assign scheme-specific `priority_group`.
 7. For each guide and each requested SNV count `mpt`:
    - sort SNVs by scheme
@@ -271,7 +272,7 @@ When `crispr_mfh_based_scoring = TRUE` (the default) and model output is availab
 - `relative_crispr_mfh < 0.6` -> bin 3 (Bronze)
 - `relative_crispr_mfh < 0.8` -> bin 4 (Iron)
 - `relative_crispr_mfh >= 0.8` -> bin 5 (Dirt)
-- templates with zero SNVs (`total_disruption_count = 0`) override to bin 5 (Dirt).
+- **Override**: Any template with zero introduced SNVs (`total_disruption_count = 0`) is forced to bin 5 (Dirt).
 
 If `crispr_mfh_based_scoring = FALSE` or if model execution fails, a deterministic heuristic fallback is used based on mismatch count and PAM status:
 - bin 0 (Platinum): `pam_disrupted_count >= 1` AND `total_disruption_count >= 2`
@@ -295,10 +296,9 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
 - `balanced`:
   1. `any_overlaps_noncoding` (FALSE first)
   2. `disruption_bin`
-  3. `relative_crispr_mfh` (Ascending)
-  4. `total_snv_quality_score`
-  5. `n_snvs`
-  6. `is_ag_risky`
+  3. `total_snv_quality_score`
+  4. `n_snvs`
+  5. `is_ag_risky`
 
 - `disruption_first`:
   1. `disruption_bin` (Ascending)
@@ -310,8 +310,7 @@ If `snvs_introduced` is empty, `n_snvs = 0`.
   1. `any_overlaps_noncoding`
   2. `total_snv_quality_score`
   3. `disruption_bin`
-  4. `relative_crispr_mfh` (Ascending)
-  5. `n_snvs`
+  4. `n_snvs`
 
 ## 11. Determinism and Edge Behavior
 
