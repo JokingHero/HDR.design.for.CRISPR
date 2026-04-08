@@ -1,9 +1,9 @@
-translate_safe <- function(dna_string) {
+translate_safe <- function(dna_string, no.init.codon = FALSE) {
   af <- alphabetFrequency(dna_string, baseOnly = FALSE)[5:18]
   if (sum(af) > 0) {
     NA_character_
   } else {
-    suppressWarnings(as.character(Biostrings::translate(dna_string)))
+    suppressWarnings(as.character(Biostrings::translate(dna_string, no.init.codon = no.init.codon)))
   }
 }
 

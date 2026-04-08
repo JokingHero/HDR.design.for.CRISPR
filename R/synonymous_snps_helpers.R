@@ -312,8 +312,8 @@ annotate_variants_with_cds <- function(
         # Translate to amino acids only if the change is meaningful
         if (status %in% c(
           "", "SYNONYMOUS", "AA_CHANGE", "AA_CHANGE_BEFORE_PTC")) {
-          aa_ref <- translate_safe(ref_codon_dna)
-          aa_alt <- translate_safe(alt_codon_dna)
+          aa_ref <- translate_safe(ref_codon_dna, codon_num != 1)
+          aa_alt <- translate_safe(alt_codon_dna, codon_num != 1)
         }
       } else {
         alt_codon_dna <- DNAString("NNN")
